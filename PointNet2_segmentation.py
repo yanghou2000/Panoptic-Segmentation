@@ -16,7 +16,7 @@ from torch_geometric.data import Dataset, Data
 
 
 data_path = '/Volumes/scratchdata/kitti/dataset/'
-DATA_path = '/home/yanghou/project/PointNet++/semantic-kitti.yaml'
+DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
 
 testing_squences = ['00']
 
@@ -33,8 +33,8 @@ test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/datase
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
-train_loader = DataLoader(train_dataset, batch_size=12, shuffle=True, num_workers=6)
-test_loaer = DataLoader(test_dataset, batch_size=12, shuffle=False, num_workers=6)
+train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=6)
+test_loaer = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=6)
 
 # add loss weights beforehand
 loss_w = train_dataset.map_loss_weight()
@@ -73,7 +73,10 @@ class Net(torch.nn.Module):
         self.lin3 = torch.nn.Linear(128, num_classes)
 
     def forward(self, data):
-        sa0_out = (data.x, data.pos, data.batch)
+        # print('y', type(data.y), data.y.size())
+        # print('pos', type(data.pos), data.pos.size())
+        # print('batch', type(data.batch), data.batch.size(), data.batch)
+        sa0_out = (data.pos, data.pos, data.batch)
         sa1_out = self.sa1_module(*sa0_out)
         sa2_out = self.sa2_module(*sa1_out)
         sa3_out = self.sa3_module(*sa2_out)
@@ -82,6 +85,7 @@ class Net(torch.nn.Module):
         fp2_out = self.fp2_module(*fp3_out, *sa1_out)
         x, _, _ = self.fp1_module(*fp2_out, *sa0_out)
 
+        # log_softmax
         return self.mlp(x).log_softmax(dim=-1)
 
 device = torch.device('cpu')
@@ -98,9 +102,11 @@ def train():
         data = data.to(device)
         optimizer.zero_grad()
         out = model(data)
-        print(out)
-        # Add weights to each class
-        loss = torch.nn.CrossEntropyLoss(out, data.y, weight=loss_w)
+        print(out, out.size())
+        # negative log likelihood loss. Input should be log-softmax
+        loss = torch.nn.NLLLoss(weight=loss_w)
+        print(type(data.y))
+        loss = loss(out, data.y)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()

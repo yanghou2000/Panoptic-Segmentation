@@ -17,6 +17,7 @@ class SAModule(torch.nn.Module):
         self.conv = PointConv(nn, add_self_loops=False)
 
     def forward(self, x, pos, batch):
+        # print(type(x), type(pos), x.size())
         idx = fps(pos, batch, ratio=self.ratio)
         row, col = radius(pos, pos[idx], self.r, batch, batch[idx],
                           max_num_neighbors=64)

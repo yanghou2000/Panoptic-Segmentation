@@ -141,8 +141,11 @@ class SemanticKittiGraph(Dataset):
         points = torch.from_numpy(points)
         onehot_label = torch.from_numpy(onehot_label)
 
+
         # pos:Node position matrix with shape [num_nodes, num_dimensions]
-        data = Data(pos=points, y=onehot_label)
+        # data = Data(pos=points, y=onehot_label)
+        map_label = torch.from_numpy(np.array(map_label))
+        data = Data(pos=points, y=map_label.long())
         return data
     
     def get_n_classes(self):
@@ -182,7 +185,7 @@ class SemanticKittiGraph(Dataset):
 #Define a main function
 if __name__=='__main__':
     #get learning_map and learning_map_inv
-    DATA_dir = '/home/yanghou/project/PointNet++/semantic-kitti.yaml'
+    DATA_dir = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
     mydataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
                                     sequences=['00'], 
                                     DATA_dir = DATA_dir)
