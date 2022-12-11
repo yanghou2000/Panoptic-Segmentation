@@ -35,8 +35,8 @@ test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/datase
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
-train_loader = DataLoader(train_dataset, batch_size=6, shuffle=True, num_workers=6)
-test_loaer = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=6)
+train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=4)
+test_loaer = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=4)
 
 # add loss weights beforehand
 loss_w = train_dataset.map_loss_weight()
@@ -60,13 +60,17 @@ class Net(torch.nn.Module):
         super().__init__()
 
         # Input channels account for both `pos` and node features.
-        self.sa1_module = SAModule(0.2, 0.2, MLP([3 + 3, 64, 64, 128]))
+        """self.sa1_module = SAModule(0.2, 0.2, MLP([3 + 3, 64, 64, 128])) try reducing redundant elements
+        self.sa2_module = SAModule(0.25, 0.4, MLP([128 + 3, 128, 128, 256]))
+        self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024]))
+        """
+        self.sa1_module = SAModule(0.2, 0.2, MLP([3, 64, 64, 128]))
         self.sa2_module = SAModule(0.25, 0.4, MLP([128 + 3, 128, 128, 256]))
         self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024]))
 
         self.fp3_module = FPModule(1, MLP([1024 + 256, 256, 256]))
         self.fp2_module = FPModule(3, MLP([256 + 128, 256, 128]))
-        self.fp1_module = FPModule(3, MLP([128 + 3, 128, 128, 128]))
+        self.fp1_module = FPModule(3, MLP([128, 128, 128, 128]))
 
         self.mlp = MLP([128, 128, 128, num_classes], dropout=0.5, norm=None)
 
@@ -78,7 +82,9 @@ class Net(torch.nn.Module):
         # print('y', type(data.y), data.y.size())
         # print('pos', type(data.pos), data.pos.size())
         # print('batch', type(data.batch), data.batch.size(), data.batch)
-        sa0_out = (data.pos, data.pos, data.batch)
+        """sa0_out = (data.pos, data.pos, data.batch) try reducing redundant elements
+        """
+        sa0_out = (None, data.pos, data.batch)
         sa1_out = self.sa1_module(*sa0_out)
         sa2_out = self.sa2_module(*sa1_out)
         sa3_out = self.sa3_module(*sa2_out)
