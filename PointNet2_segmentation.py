@@ -16,7 +16,9 @@ from torch_geometric.data import Dataset, Data
 
 
 data_path = '/Volumes/scratchdata/kitti/dataset/'
-DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
+# DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
+DATA_path = './semantic-kitti.yaml'
+save_path = '/home/yanghou/project/Panoptic-Segmentation/run'
 
 testing_squences = ['00']
 
@@ -33,8 +35,8 @@ test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/datase
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
-train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=6)
-test_loaer = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=6)
+train_loader = DataLoader(train_dataset, batch_size=6, shuffle=True, num_workers=6)
+test_loaer = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=6)
 
 # add loss weights beforehand
 loss_w = train_dataset.map_loss_weight()
@@ -88,11 +90,11 @@ class Net(torch.nn.Module):
         # log_softmax
         return self.mlp(x).log_softmax(dim=-1)
 
-device = torch.device('cpu')
-# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# device = torch.device('cpu') # only for debugging
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Net(train_dataset.get_n_classes()).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
+nloss = torch.nn.NLLLoss(weight=loss_w).to(device)
 
 def train():
     model.train()
@@ -104,9 +106,8 @@ def train():
         out = model(data)
         print(out, out.size())
         # negative log likelihood loss. Input should be log-softmax
-        loss = torch.nn.NLLLoss(weight=loss_w)
         print(type(data.y))
-        loss = loss(out, data.y)
+        loss = nloss(out, data.y.cuda())
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -117,6 +118,8 @@ def train():
             print(f'[{i+1}/{len(train_loader)}] Loss: {total_loss / 10:.4f} '
                   f'Train Acc: {correct_nodes / total_nodes:.4f}')
             total_loss = correct_nodes = total_nodes = 0
+
+
 
 
 @torch.no_grad()
@@ -160,3 +163,5 @@ def test(loader):
 for epoch in range(1, 2):
     train()
     print(f'Epoch: {epoch:02d}')
+    state = {'net':model.state_dict(), 'epoch':epoch}
+    torch.save(state, f'{save_path}/Epoch_{epoch}.pth')
