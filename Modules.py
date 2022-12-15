@@ -38,3 +38,4 @@ class GlobalSAModule(torch.nn.Module):
         pos = pos.new_zeros((x.size(0), 3))
         batch = torch.arange(x.size(0), device=batch.device)
         return x, pos, batch
+
