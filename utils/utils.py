@@ -30,3 +30,23 @@ def calc_miou(ious,num_classes):
     siou = torch.sum(ious)
     # print(tnc,siou)
     return siou/tnc
+
+def averaging_ious(ious):
+    """This function is used to calculate the average iou for each category by processing the nan value. 
+    The nan value in ious means that the category is not present in the point cloud data so when calcualting average iou this nan value should be
+    removed. 
+    """
+    # Create a tensor to store the number of NaN values for each category (column)
+    nan_count = torch.isnan(ious).sum(dim=0, dtype=torch.float)
+
+    # Replace NaN values with 0
+    ious = ious.masked_fill(torch.isnan(ious), 0)
+
+    # Take the sum of each column
+    row_sums = ious.sum(dim=0)
+
+
+    # Divide the sum along each category by the number of rows minus the number of NaN values
+    processed_iou = row_sums / (ious.shape[0] - nan_count)
+
+    return processed_iou
