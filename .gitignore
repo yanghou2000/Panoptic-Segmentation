@@ -5,3 +5,4 @@ Draft/
 testing/
 tmp_testing/
 utils.py/__pycache__
+model/__pycache__
