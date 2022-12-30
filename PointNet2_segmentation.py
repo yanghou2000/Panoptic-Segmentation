@@ -41,14 +41,22 @@ test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/datase
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
-train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
-test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=4)
+test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=4)
 
 # add loss weights beforehand
 loss_w = train_dataset.map_loss_weight()
 
+# make run file, update for every run
+run = str(1)
+save_path = os.path.join(save_path, run) # model state path
+if not os.path.exists(save_path):
+    os.makedirs(save_path)
+
 # create a SummaryWriter to write logs to a log directory
-writer = SummaryWriter('logs')
+log_path = 'tmp_log'
+log_path = os.path.join(log_path, run) # train/test info path
+writer = SummaryWriter(log_dir=log_path, filename_suffix=time.strftime("%Y%m%d_%H%M%S"))
 
 # device = torch.device('cpu') # only for debugging
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -90,13 +98,17 @@ def test(loader, model):
 
     model.eval()
 
+    # list to store the metrics for every batch
     ious, mious = [], []
     y_map = torch.empty(loader.dataset.get_n_classes(), device=device).long()
+    #TODO: change the 20 into a variable. Currently the 20 categories inlcude the unlabled class which
+    #should be removed. After removal there should be 19
     data_category = list(range(20))
     for data in loader:
         data = data.to(device)
         outs = model(data)
 
+        # Break down for each batch
         sizes = (data.ptr[1:] - data.ptr[:-1]).tolist()
         for out, y in zip(outs.split(sizes), data.y.split(sizes)):
 
@@ -109,32 +121,40 @@ def test(loader, model):
             ious.append(iou)
             mious.append(miou)
 
-        ious_avr = torch.sum(ious) / len(ious)
-        miou_avr = torch.sum(mious) / len(miou)
+    # process mious and ious into right format
+    ious = torch.cat(ious, dim=-1).reshape(-1, 20) # concatenate into a tensor of tensors
+    mious = torch.as_tensor(mious) # convert list into view of tensor
 
-        return ious_avr, miou_avr
+    # average over test set
+    ious_avr = utils.averaging_ious(ious) # record the number of nan in each array, filled with 0, take sum, divied by (num_classes-number of nan)
+    miou_avr = torch.sum(mious) / mious.size()[0]
+
+    return ious_avr, miou_avr
 
 
-# for epoch in range(1, 31):
+# for epoch in range(1, 11): # original is (1, 31)
 #     loss = train()
-#     ious, miou = test(test_loader)
+#     ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
 #     writer.add_scalar('train/loss', loss, epoch)
-#     writer.add_scalar('train/iou', miou, epoch)
-#     tboard.add_iou(writer, ious, epoch)
+#     writer.add_scalar('test/miou', miou, epoch) # miou
+#     tboard.add_iou(writer, ious, epoch) # iou for each category
 #     state = {'net':model.state_dict(), 'epoch':epoch}
 #     torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
 #     print(f'Epoch: {epoch:02d}, Test IoU: {iou:.4f}')
 
 # test script
-for epoch in range(1, 2):
-    loss = train()
-    print(f'Epoch: {epoch:02d}')
-    state = {'net':model.state_dict(), 'epoch':epoch}
-    torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
+# for epoch in range(1, 2):
+#     loss = train()
+#     print(f'Epoch: {epoch:02d}')
+#     state = {'net':model.state_dict(), 'epoch':epoch}
+#     torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
 
 
 
-# # debugging test()
-# state_dict = torch.load('./run/Epoch_3_20221214_210321.pth')['net']
-# model.load_state_dict(state_dict)
-# test(test_loader, model)
+# debugging test()
+state_dict = torch.load('./run/0/Epoch_10_20221217_121731.pth')['net']
+model.load_state_dict(state_dict)
+ious_all, miou_all = test(test_loader, model)
+print('ious_all: \n', ious_all)
+print('miou_all: \n', miou_all)
+print('Finished testing')
