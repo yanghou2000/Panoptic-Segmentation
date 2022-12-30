@@ -14,10 +14,6 @@ class Net(torch.nn.Module):
         super().__init__()
 
         # Input channels account for both `pos` and node features.
-        """self.sa1_module = SAModule(0.2, 0.2, MLP([3 + 3, 64, 64, 128])) try reducing redundant elements
-        self.sa2_module = SAModule(0.25, 0.4, MLP([128 + 3, 128, 128, 256]))
-        self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024]))
-        """
         self.sa1_module = SAModule(0.2, 0.2, MLP([3, 64, 64, 128]))
         self.sa2_module = SAModule(0.25, 0.4, MLP([128 + 3, 128, 128, 256]))
         self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024]))
@@ -33,11 +29,6 @@ class Net(torch.nn.Module):
         self.lin3 = torch.nn.Linear(128, num_classes)
 
     def forward(self, data):
-        # print('y', type(data.y), data.y.size())
-        # print('pos', type(data.pos), data.pos.size())
-        # print('batch', type(data.batch), data.batch.size(), data.batch)
-        """sa0_out = (data.pos, data.pos, data.batch) try reducing redundant elements
-        """
         sa0_out = (None, data.pos, data.batch)
         sa1_out = self.sa1_module(*sa0_out)
         sa2_out = self.sa2_module(*sa1_out)
