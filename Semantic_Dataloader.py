@@ -136,15 +136,16 @@ class SemanticKittiGraph(Dataset):
         map_label = [self.to_xentropy(i) for i in sem_label]
         map_label_string = [self.get_xentropy_class_string(i) for i in map_label]        
         
-        onehot_label = self.to_onehot(map_label,self.nclasses, num_points)
         
         # convert from numpy to tensor, default to float64
         points = torch.from_numpy(points)
-        onehot_label = torch.from_numpy(onehot_label)
-
+        
+        # # convert y to one_hot_label
+        # onehot_label = self.to_onehot(map_label,self.nclasses, num_points)
+        # onehot_label = torch.from_numpy(onehot_label)
 
         # pos:Node position matrix with shape [num_nodes, num_dimensions]
-        # data = Data(pos=points, y=onehot_label)
+        # data = Data(pos=points, y=label.long)
         map_label = torch.from_numpy(np.array(map_label))
         data = Data(pos=points, y=map_label.long())
         return data
