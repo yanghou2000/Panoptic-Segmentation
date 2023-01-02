@@ -26,14 +26,14 @@ data_path = '/Volumes/scratchdata/kitti/dataset/'
 DATA_path = './semantic-kitti.yaml' # for running in docker
 save_path = './run'
 
-testing_squences = ['00']
+testing_sequences = ['00']
 
 train_sequences = ['00', '01', '02', '03', '04', '05', '06']
 val_sequences = ['07']
 test_sequences = ['08', '09', '10']
 
 train_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
-                                sequences= testing_squences, 
+                                sequences= train_sequences, 
                                 DATA_dir=DATA_path)
 
 test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
@@ -42,16 +42,22 @@ test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/datase
 
 torch.manual_seed(42)
 train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=4)
-test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=4)
+test_loader = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=4)
+
+# add ignore index for ignore labels in training and testing
+ignore_label = 0
 
 # add loss weights beforehand
 loss_w = train_dataset.map_loss_weight()
+loss_w[ignore_label] = 0 # set the label to be zero so no training for this category
+print('loss_w, check first element to be zero ', loss_w)
 
 # make run file, update for every run
-run = str(1)
+run = str(5)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
+print('Run Number is :', run)
 
 # create a SummaryWriter to write logs to a log directory
 log_path = 'tmp_log'
@@ -65,10 +71,13 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 nloss = torch.nn.NLLLoss(weight=loss_w).to(device)
 
 # TODO: ignore class label 0
-def train():
+# TODO: modify train acc metric after igonoring class label 0
+def train(epoch):
     model.train()
 
-    total_loss = correct_nodes = total_nodes = 0
+    # total_loss = correct_nodes = total_nodes = 0
+    total_loss = 0
+    Length = len(train_loader)
     for i, data in enumerate(train_loader):
         data = data.to(device)
         optimizer.zero_grad()
@@ -78,17 +87,18 @@ def train():
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-        correct_nodes += out.argmax(dim=1).eq(data.y).sum().item()
-        total_nodes += data.num_nodes
-        print('Loss: ', loss)
+        # correct_nodes += out.argmax(dim=1).eq(data.y).sum().item()
+        # total_nodes += data.num_nodes
+        # print('Loss: ', loss)
 
-        if (i + 1) % 10 == 0:
-            print(f'[{i+1}/{len(train_loader)}] Loss: {total_loss / 10:.4f} '
-                  f'Train Acc: {correct_nodes / total_nodes:.4f}')
-            total_loss = correct_nodes = total_nodes = 0
-        # Log a scalar value (scalar summary)
-    loss = total_loss / i
-    return loss
+        if (i + 1) % 50 == 0:
+            # print(f'[{i+1}/{len(train_loader)}] Loss: {total_loss / 50:.4f} '
+            #       f'Train Acc: {correct_nodes / total_nodes:.4f}')
+            writer.add_scalar('train/total_loss', total_loss, epoch*Length+i)
+            # writer.add_scalar('train/accuracy', correct_nodes / total_nodes, epoch*Length+i)
+            # total_loss = correct_nodes = total_nodes = 0
+            total_loss = 0
+
         
 
 
@@ -103,7 +113,7 @@ def test(loader, model):
     y_map = torch.empty(loader.dataset.get_n_classes(), device=device).long()
     #TODO: change the 20 into a variable. Currently the 20 categories inlcude the unlabled class which
     #should be removed. After removal there should be 19
-    data_category = list(range(20))
+    # data_category = list(range(20))
     for data in loader:
         data = data.to(device)
         outs = model(data)
@@ -113,9 +123,9 @@ def test(loader, model):
         for out, y in zip(outs.split(sizes), data.y.split(sizes)):
 
             print('out.size: ', out.size(), 'y.size: ', y.size())
-            iou = utils.calc_iou(out.argmax(dim=-1), y, num_classes=20)
+            iou = utils.calc_iou_per_cat(out, y, num_classes=20, ignore_index=ignore_label)
 
-            miou = utils.calc_miou(iou, 20)
+            miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
 
             print('iou: ', iou, 'miou: ', miou)
             ious.append(iou)
@@ -132,15 +142,15 @@ def test(loader, model):
     return ious_avr, miou_avr
 
 
-# for epoch in range(1, 11): # original is (1, 31)
-#     loss = train()
-#     ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
-#     writer.add_scalar('train/loss', loss, epoch)
-#     writer.add_scalar('test/miou', miou, epoch) # miou
-#     tboard.add_iou(writer, ious, epoch) # iou for each category
-#     state = {'net':model.state_dict(), 'epoch':epoch}
-#     torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
-#     print(f'Epoch: {epoch:02d}, Test IoU: {iou:.4f}')
+for epoch in range(10): # original is (1, 31)
+    train(epoch)
+    ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
+    
+    writer.add_scalar('test/miou', miou_all, epoch) # miou
+    tboard.add_iou(writer, ious_all, epoch) # iou for each category
+    state = {'net':model.state_dict(), 'epoch':epoch, 'optimizer': optimizer}
+    torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
+    print(f'Epoch: {epoch:02d}, Test IoU: {miou_all:.4f}')
 
 # test script
 # for epoch in range(1, 2):
@@ -151,10 +161,10 @@ def test(loader, model):
 
 
 
-# debugging test()
-state_dict = torch.load('./run/0/Epoch_10_20221217_121731.pth')['net']
-model.load_state_dict(state_dict)
-ious_all, miou_all = test(test_loader, model)
-print('ious_all: \n', ious_all)
-print('miou_all: \n', miou_all)
-print('Finished testing')
+# # debugging test()
+# state_dict = torch.load('./run/0/Epoch_10_20221217_121731.pth')['net']
+# model.load_state_dict(state_dict)
+# ious_all, miou_all = test(test_loader, model)
+# print('ious_all: \n', ious_all)
+# print('miou_all: \n', miou_all)
+# print('Finished testing')
