@@ -1,28 +1,41 @@
 import torch
 
-def calc_iou(pred, target, num_classes):
+def calc_iou_per_cat(pred, target, num_classes, ignore_index):
+    """The iou for ignored category will always be zero
+    """
     # Initialize a tensor to store the IoU for each class
     iou_per_class = torch.zeros(num_classes)
 
+    pred[:, ignore_index] = torch.tensor([-float('inf')])
+    pred = pred.argmax(-1)
     # Iterate over each class
     for c in range(num_classes):
-        # Create masks that identify the predicted and target elements for class c
-        pred_mask = (pred == c)
-        target_mask = (target == c)
+        if c == ignore_index:
+            continue
+        else:
+            # Create masks that identify the predicted and target elements for class c
+            pred_mask = (pred == c)
+            target_mask = (target == c)
 
-        # Compute the area of the intersection of the predicted and target tensors for class c
-        intersection = (pred_mask * target_mask).sum()
+            # Compute the area of the intersection of the predicted and target tensors for class c
+            intersection = (pred_mask * target_mask).sum()
 
-        # Compute the area of the union of the predicted and target tensors for class c
-        union = pred_mask.sum() + target_mask.sum() - intersection
+            # Compute the area of the union of the predicted and target tensors for class c
+            union = pred_mask.sum() + target_mask.sum() - intersection
 
-        # Compute the IoU for class c as the ratio of the intersection to the union
-        iou_per_class[c] = intersection / union
+            # Compute the IoU for class c as the ratio of the intersection to the union
+            iou_per_class[c] = intersection / union
 
     # Return the IoU tensor
     return iou_per_class
 
-def calc_miou(ious,num_classes):
+def calc_miou(ious, num_classes, ignore_label):
+    """As the iou for ignored category is zero, the sum will not change but number of needed categoy is minused by one
+    """
+    if ignore_label == False:
+        num_classes = num_classes
+    else:
+        num_classes -= 1
     mask = torch.isnan(ious)
     # print(mask.nonzero())
     tnc = torch.tensor(num_classes) - torch.sum(mask)
@@ -50,3 +63,26 @@ def averaging_ious(ious):
     processed_iou = row_sums / (ious.shape[0] - nan_count)
 
     return processed_iou
+
+# # do not ignore labels when calculating iou for each category
+# def calc_iou(pred, target, num_classes):
+#     # Initialize a tensor to store the IoU for each class
+#     iou_per_class = torch.zeros(num_classes)
+
+#     # Iterate over each class
+#     for c in range(num_classes):
+#         # Create masks that identify the predicted and target elements for class c
+#         pred_mask = (pred == c)
+#         target_mask = (target == c)
+
+#         # Compute the area of the intersection of the predicted and target tensors for class c
+#         intersection = (pred_mask * target_mask).sum()
+
+#         # Compute the area of the union of the predicted and target tensors for class c
+#         union = pred_mask.sum() + target_mask.sum() - intersection
+
+#         # Compute the IoU for class c as the ratio of the intersection to the union
+#         iou_per_class[c] = intersection / union
+
+#     # Return the IoU tensor
+#     return iou_per_class
