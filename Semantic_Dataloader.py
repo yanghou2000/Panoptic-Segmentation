@@ -16,6 +16,9 @@ class SemanticKittiGraph(Dataset):
         self.sequences = sequences
         self.nclasses = len(self.learning_map_inv)
 
+        self.scan_names = []
+        self.label_names = []
+
         # Iterate through sequences 
         for sequence in self.sequences:
 
@@ -38,16 +41,16 @@ class SemanticKittiGraph(Dataset):
                 quit()
 
             # populate the pointclouds/labels
-            self.scan_names = [os.path.join(dp, f) for dp, dn, fn in os.walk(
+            scan_names = [os.path.join(dp, f) for dp, dn, fn in os.walk(
                 os.path.expanduser(self.scan_paths)) for f in fn if not f.startswith('.')]
-            self.label_names = [os.path.join(dp, f) for dp, dn, fn in os.walk(
+            label_names = [os.path.join(dp, f) for dp, dn, fn in os.walk(
                 os.path.expanduser(self.label_paths)) for f in fn if not f.startswith('.')]
             
             # extend list
-            self.scan_names.extend(self.scan_names)
-            self.label_names.extend(self.label_names)
+            self.scan_names.extend(scan_names)
+            self.label_names.extend(label_names)
             
-            print(f'Number of scan/label files:{len(self.label_names)} in {sequence}')
+        print(f'Number of scan/label files:{len(self.label_names)} in {sequence}')
 
         # sort for correspondance
         self.scan_names.sort()
