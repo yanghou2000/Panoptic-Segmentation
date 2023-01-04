@@ -132,9 +132,9 @@ class SemanticKittiGraph(Dataset):
         sem_label = label & 0xFFFF
         inst_label = label >> 16
 
-        label_string = [self.get_original_class_string(i) for i in sem_label]
+        # label_string = [self.get_original_class_string(i) for i in sem_label] # suppress for speed
         map_label = [self.to_xentropy(i) for i in sem_label]
-        map_label_string = [self.get_xentropy_class_string(i) for i in map_label]        
+        # map_label_string = [self.get_xentropy_class_string(i) for i in map_label] # suppress for speed      
         
         
         # convert from numpy to tensor, default to float64
@@ -157,6 +157,7 @@ class SemanticKittiGraph(Dataset):
         return self.labels[idx]
 
     def get_xentropy_class_string(self, idx):
+        print(self.labels[self.learning_map_inv[idx]])
         return self.labels[self.learning_map_inv[idx]]
 
     def to_original(self, label):
