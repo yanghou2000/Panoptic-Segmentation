@@ -1,12 +1,15 @@
 import os
 import time
+import timeit
 import yaml
+import datetime
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from Modules import GlobalSAModule, SAModule
 from torch_scatter import scatter
+import torch.profiler
 
 import torch_geometric.transforms as T
 from Semantic_Dataloader import SemanticKittiGraph
@@ -41,8 +44,10 @@ test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/datase
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=4)
-test_loader = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=4)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
+                          drop_last=True)
+test_loader = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
+                         drop_last=True)
 
 # add ignore index for ignore labels in training and testing
 ignore_label = 0
@@ -53,7 +58,7 @@ loss_w[ignore_label] = 0 # set the label to be zero so no training for this cate
 print('loss_w, check first element to be zero ', loss_w)
 
 # make run file, update for every run
-run = str(5)
+run = str(7)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
@@ -78,26 +83,56 @@ def train(epoch):
     # total_loss = correct_nodes = total_nodes = 0
     total_loss = 0
     Length = len(train_loader)
-    for i, data in enumerate(train_loader):
-        data = data.to(device)
-        optimizer.zero_grad()
-        out = model(data)
-        # negative log likelihood loss. Input should be log-softmax
-        loss = nloss(out, data.y.cuda())
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-        # correct_nodes += out.argmax(dim=1).eq(data.y).sum().item()
-        # total_nodes += data.num_nodes
-        # print('Loss: ', loss)
 
-        if (i + 1) % 50 == 0:
-            # print(f'[{i+1}/{len(train_loader)}] Loss: {total_loss / 50:.4f} '
-            #       f'Train Acc: {correct_nodes / total_nodes:.4f}')
-            writer.add_scalar('train/total_loss', total_loss, epoch*Length+i)
-            # writer.add_scalar('train/accuracy', correct_nodes / total_nodes, epoch*Length+i)
-            # total_loss = correct_nodes = total_nodes = 0
-            total_loss = 0
+    data_time, forward_time, total_time = [], [], []
+    end = time.time()
+    with torch.profiler.profile(
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=4),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                os.path.join(log_path, time.strftime("%Y%m%d_%H%M%S"))),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True
+    ) as prof:
+        for i, data in enumerate(train_loader):
+            # check start time
+            # start = timeit.default_timer()
+            
+            data = data.to(device)
+            optimizer.zero_grad()
+            out = model(data)
+            # negative log likelihood loss. Input should be log-softmax
+            loss = nloss(out, data.y.cuda())
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            # correct_nodes += out.argmax(dim=1).eq(data.y).sum().item()
+            # total_nodes += data.num_nodes
+            # print('Loss: ', loss)
+            
+            # check end time
+            # end = timeit.default_timer()
+            # print('Batch_ID: ', i, 'Eplapsed time: ', end-start)
+            
+            total_time.append(time.time() - end)
+
+            if (i + 1) % 10 == 0:
+                # print(f'[{i+1}/{len(train_loader)}] Loss: {total_loss / 50:.4f} '
+                #       f'Train Acc: {correct_nodes / total_nodes:.4f}')
+                # print(f'[{i+1}/{Length}] Loss: {total_loss / 10:.4f} '
+                    #   f'Train Acc: {correct_nodes / total_nodes:.4f} '
+                print(
+                      f'Data Time: {datetime.timedelta(seconds=np.array(data_time).mean())} '
+                      f'Forward Time: {datetime.timedelta(seconds=np.array(forward_time).mean())} '
+                      f'Total Time: {datetime.timedelta(seconds=np.array(total_time).mean())}')
+                writer.add_scalar('train/total_loss', total_loss, epoch*Length+i)
+                # writer.add_scalar('train/accuracy', correct_nodes / total_nodes, epoch*Length+i)
+                # total_loss = correct_nodes = total_nodes = 0
+                total_loss = 0
+                data_time, forward_time, total_time = [], [], []
+            
+            prof.step()
+            end = time.time()
 
         
 
@@ -142,15 +177,24 @@ def test(loader, model):
     return ious_avr, miou_avr
 
 
-for epoch in range(10): # original is (1, 31)
+for epoch in range(11): # original is (1, 31)
     train(epoch)
-    ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
-    
-    writer.add_scalar('test/miou', miou_all, epoch) # miou
-    tboard.add_iou(writer, ious_all, epoch) # iou for each category
+    print(f'Finished training {epoch}')
     state = {'net':model.state_dict(), 'epoch':epoch, 'optimizer': optimizer}
     torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
-    print(f'Epoch: {epoch:02d}, Test IoU: {miou_all:.4f}')
+    print(f'Finished saving model {epoch}')
+
+    ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
+    print(f'Finished testing {epoch}')
+
+    writer.add_scalar('test/miou', miou_all, epoch) # miou
+    tboard.add_iou(writer, ious_all, epoch) # iou for each category
+    print(f'Finished tensorboarding {epoch}')
+
+    print(f'Finished Epoch: {epoch:02d}, Test IoU: {miou_all:.4f}')
+    
+print('All finished!')
+    
 
 # test script
 # for epoch in range(1, 2):
