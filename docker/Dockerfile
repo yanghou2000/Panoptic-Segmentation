@@ -26,6 +26,10 @@ RUN pip3 install torch-scatter torch-sparse torch-cluster torch-spline-conv clas
 
 # Install TensorBoard
 RUN pip install tensorboard
+
+# Install PyTorch Profiler TensorBoard Plugin
+RUN pip install torch_tb_profiler
+
 # Expose the port for TensorBoard
 EXPOSE 6006
 
