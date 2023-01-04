@@ -1,4 +1,5 @@
 import torch
+import yaml
 
 def calc_iou_per_cat(pred, target, num_classes, ignore_index):
     """The iou for ignored category will always be zero
@@ -63,6 +64,13 @@ def averaging_ious(ious):
     processed_iou = row_sums / (ious.shape[0] - nan_count)
 
     return processed_iou
+
+
+def get_xentropy_class_string(label, DATA_path):
+    DATA = yaml.safe_load(open(DATA_path, 'r'))
+    learning_map_inv, labels= DATA['learning_map_inv'], DATA['labels']
+    # print(labels[learning_map_inv[label]])
+    return labels[learning_map_inv[label]]
 
 # # do not ignore labels when calculating iou for each category
 # def calc_iou(pred, target, num_classes):
