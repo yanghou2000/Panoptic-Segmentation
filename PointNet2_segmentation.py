@@ -58,7 +58,7 @@ loss_w[ignore_label] = 0 # set the label to be zero so no training for this cate
 print('loss_w, check first element to be zero ', loss_w)
 
 # make run file, update for every run
-run = str(7)
+run = str(8)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
@@ -97,10 +97,12 @@ def train(epoch):
         for i, data in enumerate(train_loader):
             # check start time
             # start = timeit.default_timer()
-            
+            data_time.append(time.time() - end)
             data = data.to(device)
             optimizer.zero_grad()
+            forward_start = time.time()
             out = model(data)
+            forward_time.append(time.time() - forward_start)
             # negative log likelihood loss. Input should be log-softmax
             loss = nloss(out, data.y.cuda())
             loss.backward()
@@ -121,10 +123,9 @@ def train(epoch):
                 #       f'Train Acc: {correct_nodes / total_nodes:.4f}')
                 # print(f'[{i+1}/{Length}] Loss: {total_loss / 10:.4f} '
                     #   f'Train Acc: {correct_nodes / total_nodes:.4f} '
-                print(
-                      f'Data Time: {datetime.timedelta(seconds=np.array(data_time).mean())} '
-                      f'Forward Time: {datetime.timedelta(seconds=np.array(forward_time).mean())} '
-                      f'Total Time: {datetime.timedelta(seconds=np.array(total_time).mean())}')
+                #       f'Data Time: {datetime.timedelta(seconds=np.array(data_time).mean())} '
+                #       f'Forward Time: {datetime.timedelta(seconds=np.array(forward_time).mean())} '
+                #       f'Total Time: {datetime.timedelta(seconds=np.array(total_time).mean())}')
                 writer.add_scalar('train/total_loss', total_loss, epoch*Length+i)
                 # writer.add_scalar('train/accuracy', correct_nodes / total_nodes, epoch*Length+i)
                 # total_loss = correct_nodes = total_nodes = 0
@@ -188,7 +189,7 @@ for epoch in range(11): # original is (1, 31)
     print(f'Finished testing {epoch}')
 
     writer.add_scalar('test/miou', miou_all, epoch) # miou
-    tboard.add_iou(writer, ious_all, epoch) # iou for each category
+    tboard.add_iou(writer, ious_all, epoch, DATA_path) # iou for each category
     print(f'Finished tensorboarding {epoch}')
 
     print(f'Finished Epoch: {epoch:02d}, Test IoU: {miou_all:.4f}')
