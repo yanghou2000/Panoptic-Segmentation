@@ -1,0 +1,1 @@
+python -m PointNet2_sem_seg_msg.PointNet2_sem_seg_msg_main.py
