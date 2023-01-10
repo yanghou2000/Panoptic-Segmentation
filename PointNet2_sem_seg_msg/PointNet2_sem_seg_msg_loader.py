@@ -3,17 +3,22 @@
 
 import os
 import numpy as np
+from numpy.random import permutation
 import torch
 # from torch_geometric.data import Dataset, Data
 from torch.utils.data import Dataset
 import yaml
 from PointNet2_sem_seg_msg.PointNet2_sem_seg_msg_utils import pc_normalize
+# from PointNet2_sem_seg_msg_utils import pc_normalize # for debugging in loader file
 
 
 
 class SemanticKitti(Dataset):
     EXTENSIONS_SCAN = ['.bin']
     EXTENSIONS_LABEL = ['.label']
+    
+    np.random.seed(42)
+
     def __init__(self, dataset_dir, sequences, DATA_dir):
         # super().__init__(root=dataset_dir, transform=None, pre_transform=None, pre_filter=None)
         DATA = yaml.safe_load(open(DATA_dir, 'r'))
@@ -115,8 +120,8 @@ class SemanticKitti(Dataset):
         # normalization
         points = pc_normalize(points)
 
-        # number of points
-        num_points = points.shape[0]
+        # number of points before sampling
+        num_points_bs = points.shape[0]
         # print(f'Number of points in scan: {num_points}')
         # print(f'Number of classes: {self.nclasses}')
 
@@ -144,7 +149,14 @@ class SemanticKitti(Dataset):
         map_label = [self.to_xentropy(i) for i in sem_label]
         # map_label_string = [self.get_xentropy_class_string(i) for i in map_label] # suppress for speed      
         
+        # downsample points and labels to desired sizes
+        sample_indices = permutation(120000)
+        points = points[sample_indices]
+        map_label = np.array(map_label) # convert to numpy array for indexing
+        map_label = map_label[sample_indices]
         
+        num_points_as = points.shape[0] # number of points after sampling
+
         # convert from numpy to tensor, default to float64
         points = torch.from_numpy(points)
         
@@ -198,16 +210,17 @@ if __name__=='__main__':
     #get learning_map and learning_map_inv
     DATA_dir = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
     mydataset = SemanticKitti(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
-                                    sequences=['00', '01'], 
+                                    sequences=['00'], 
                                     DATA_dir = DATA_dir)
-    # print(mydataset[0])
+    print(mydataset[0])
+    x, y = mydataset[0]
+    print(len(y))
     # print(mydataset[0].y[6:10,:])
     # print(f'pos: {type(mydataset[0].pos)}')
     # print(mydataset.map_loss_weight())
-    print(f'len: {mydataset.__len__()}')
+    # print(f'len: {mydataset.__len__()}')
     # print(f'original label: {mydataset[0].y[-10:]}, type: {type(mydataset[0].y)}')
     # print(f'orignial label string: {mydataset[0].label_string[-10:]}')
     # print(f'mapped label: {mydataset[0].map_label[-10:]}')
     # print(f'mapped label string: {mydataset[0].map_label_string[-10:]}')
-
 

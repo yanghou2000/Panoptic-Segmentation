@@ -95,13 +95,23 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     """
     device = xyz.device
     B, N, C = xyz.shape
+    
+    print('query_ball_point: ',f'B: {B}', f'N: {N}', f'C: {C}', '\n')
+    
     _, S, _ = new_xyz.shape
+    print(f'new_xyz.shape: ', new_xyz.shape, '\n')
     group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
+    print(f'group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1]): {group_idx}', group_idx.size(), '\n')
     sqrdists = square_distance(new_xyz, xyz)
+    print(f'sqrdists: {sqrdists}', sqrdists.size(), '\n')
     group_idx[sqrdists > radius ** 2] = N
+    print('query_ball_point: ', f'group_idx[sqrdists > radius ** 2] = N: {group_idx}', group_idx.size(), '\n')
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
+    print('query_ball_point: ', f'group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]: {group_idx}', group_idx.size(), '\n')
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
+    print('query_ball_point: ', f'group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample]): {group_first}', group_first.size(), '\n')
     mask = group_idx == N
+    print('query_ball_point: ', f'mask = group_idx == N: {mask}', mask.size(), '\n')
     group_idx[mask] = group_first[mask]
     return group_idx
 

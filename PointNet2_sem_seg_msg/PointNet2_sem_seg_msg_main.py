@@ -35,11 +35,11 @@ data_path = '/Volumes/scratchdata/kitti/dataset/'
 DATA_path = './semantic-kitti.yaml' # for running in docker
 save_path = './run_msg'
 
-testing_sequences = ['00']
+testing_sequences = ['00', '01']
 
-train_sequences = ['00', '01', '02', '03', '04', '05', '06']
-val_sequences = ['07']
-test_sequences = ['08', '09', '10']
+train_sequences = ['00', '01', '02', '03', '04', '05', '06', '07']
+val_sequences = ['08']
+test_sequences = ['09', '10'] # sequence 09 and 10 are geographically far away from others so better generalization
 
 train_dataset = SemanticKitti(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
                                 sequences= testing_sequences, 
@@ -50,7 +50,7 @@ test_dataset = SemanticKitti(dataset_dir='/Volumes/scratchdata/kitti/dataset/',
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
+train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
                           drop_last=True)
 test_loader = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
                          drop_last=True)
@@ -100,17 +100,17 @@ def train(epoch):
             profile_memory=True,
             with_stack=True
     ) as prof:
-        for i, data in enumerate(train_loader):
+        for i, (points, labels), in enumerate(train_loader):
             # check start time
             # start = timeit.default_timer()
             data_time.append(time.time() - end)
-            data = data.to(device)
+            points, labels = points.to(device), labels.to(device)
             optimizer.zero_grad()
             forward_start = time.time()
-            out = model(data)
+            out = model(points)
             forward_time.append(time.time() - forward_start)
             # negative log likelihood loss. Input should be log-softmax
-            loss = nloss(out, data.y.cuda())
+            loss = nloss(out, labels.cuda())
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -154,23 +154,30 @@ def test(loader, model):
     ious, mious = [], []
     # y_map = torch.empty(loader.dataset.get_n_classes(), device=device).long()
     # data_category = list(range(20))
-    for data in loader:
-        data = data.to(device)
-        outs = model(data)
-
+    for (points, labels) in loader:
+        points, labels = points.to(device), labels.to(device)
+        outs = model(points)
+        print('out.size: ', outs.size(), 'labels.size: ', labels.size())
         # TODO: change the data.ptr to batch the data
         # Break down for each batch
-        sizes = (data.ptr[1:] - data.ptr[:-1]).tolist()
-        for out, y in zip(outs.split(sizes), data.y.split(sizes)):
+        # sizes = (data.ptr[1:] - data.ptr[:-1]).tolist()
+        # for out, y in zip(outs.split(sizes), data.y.split(sizes)):
 
-            print('out.size: ', out.size(), 'y.size: ', y.size())
-            iou = utils.calc_iou_per_cat(out, y, num_classes=20, ignore_index=ignore_label)
+        #     print('out.size: ', out.size(), 'y.size: ', y.size())
+        #     iou = utils.calc_iou_per_cat(out, y, num_classes=20, ignore_index=ignore_label)
 
-            miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
+        #     miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
 
-            print('iou: ', iou, 'miou: ', miou)
-            ious.append(iou)
-            mious.append(miou)
+        #     print('iou: ', iou, 'miou: ', miou)
+        #     ious.append(iou)
+        #     mious.append(miou)
+        iou = utils.calc_iou_per_cat(outs, labels, num_classes=20, ignore_index=ignore_label)
+
+        miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
+
+        print('iou: ', iou, 'miou: ', miou)
+        ious.append(iou)
+        mious.append(miou)
 
     # process mious and ious into right format
     ious = torch.cat(ious, dim=-1).reshape(-1, 20) # concatenate into a tensor of tensors
