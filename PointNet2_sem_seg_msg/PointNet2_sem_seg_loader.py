@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset
 import yaml
 # remember to bring back pc
-from PointNet2_sem_seg_msg.PointNet2_sem_seg_msg_utils import pc_normalize 
+# from PointNet2_sem_seg_msg.PointNet2_sem_seg_msg_utils import pc_normalize 
 import torch.nn.functional as F
 # from PointNet2_sem_seg_msg_utils import pc_normalize # for debugging in loader file
 
@@ -123,8 +123,8 @@ class SemanticKitti(Dataset):
         # put in attribute
         points = scan[:, 0:3]    # get xyz
 
-        # normalization
-        points = pc_normalize(points)
+        # # normalization
+        # points = pc_normalize(points)
 
         # number of points before sampling
         num_points_bs = points.shape[0]
@@ -268,4 +268,3 @@ if __name__=='__main__':
             finish = time.time()
             print(f'duration_pin_true: {int(finish)-int(start)}')
             break
-

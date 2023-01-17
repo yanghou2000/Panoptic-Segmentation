@@ -96,23 +96,24 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     
-    print('query_ball_point: ',f'B: {B}', f'N: {N}', f'C: {C}', '\n')
+    # print('query_ball_point: ',f'B: {B}', f'N: {N}', f'C: {C}', '\n')
     
     _, S, _ = new_xyz.shape
-    print(f'new_xyz.shape: ', new_xyz.shape, '\n')
+    # print(f'new_xyz.shape: ', new_xyz.shape, '\n')
     group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
-    print(f'group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1]): {group_idx}', group_idx.size(), '\n')
+    # print(f'group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1]): {group_idx}', group_idx.size(), '\n')
     sqrdists = square_distance(new_xyz, xyz)
-    print(f'sqrdists: {sqrdists}', sqrdists.size(), '\n')
+    # print(f'sqrdists: {sqrdists}', sqrdists.size(), '\n')
     group_idx[sqrdists > radius ** 2] = N
-    print('query_ball_point: ', f'group_idx[sqrdists > radius ** 2] = N: {group_idx}', group_idx.size(), '\n')
+    # print('query_ball_point: ', f'group_idx[sqrdists > radius ** 2] = N: {group_idx}', group_idx.size(), '\n')
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
-    print('query_ball_point: ', f'group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]: {group_idx}', group_idx.size(), '\n')
+    # print('query_ball_point: ', f'group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]: {group_idx}', group_idx.size(), '\n')
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    print('query_ball_point: ', f'group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample]): {group_first}', group_first.size(), '\n')
+    # print('query_ball_point: ', f'group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample]): {group_first}', group_first.size(), '\n')
     mask = group_idx == N
-    print('query_ball_point: ', f'mask = group_idx == N: {mask}', mask.size(), '\n')
+    # print('query_ball_point: ', f'mask = group_idx == N: {mask}', mask.size(), '\n')
     group_idx[mask] = group_first[mask]
+    # print(f'group_idx: {group_idx}')
     return group_idx
 
 
@@ -239,22 +240,27 @@ class PointNetSetAbstractionMsg(nn.Module):
             new_xyz: sampled points position data, [B, C, S]
             new_points_concat: sample points feature data, [B, D', S]
         """
-        xyz = xyz.permute(0, 2, 1)
+        xyz = xyz.permute(0, 2, 1) # [B, N, C]
         if points is not None:
             points = points.permute(0, 2, 1)
 
         B, N, C = xyz.shape
+        # print(f'xyz.shape: {xyz.shape}')
         S = self.npoint
-        new_xyz = index_points(xyz, farthest_point_sample(xyz, S))
+        new_xyz = index_points(xyz, farthest_point_sample(xyz, S)) # [B, S, C]
         new_points_list = []
         for i, radius in enumerate(self.radius_list):
             K = self.nsample_list[i]
             group_idx = query_ball_point(radius, K, xyz, new_xyz)
             grouped_xyz = index_points(xyz, group_idx)
             grouped_xyz -= new_xyz.view(B, S, 1, C)
+            # print(f'if points is not None: {points is not None}', '\n')
+            # print(f'grouped_xyz: {grouped_xyz}', grouped_xyz.size(), '\n')
             if points is not None:
                 grouped_points = index_points(points, group_idx)
+                # print(f'grouped_points size before cat: {grouped_points.size()}', '\n')
                 grouped_points = torch.cat([grouped_points, grouped_xyz], dim=-1)
+                # print(f'grouped_points size after cat: {grouped_points.size()}', '\n')
             else:
                 grouped_points = grouped_xyz
 
@@ -262,6 +268,10 @@ class PointNetSetAbstractionMsg(nn.Module):
             for j in range(len(self.conv_blocks[i])):
                 conv = self.conv_blocks[i][j]
                 bn = self.bn_blocks[i][j]
+                # print(f'i: {i}', f'j: {j}', '\n')
+                # print(f'bn: {bn}', '\n')
+                # print(f'conv: {conv}', '\n')
+                # print(f'grouped_points: {grouped_points}', grouped_points.size(),'\n')
                 grouped_points =  F.relu(bn(conv(grouped_points)))
             new_points = torch.max(grouped_points, 2)[0]  # [B, D', S]
             new_points_list.append(new_points)

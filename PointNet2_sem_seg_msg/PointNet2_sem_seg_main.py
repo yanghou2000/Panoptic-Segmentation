@@ -14,12 +14,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from PointNet2_sem_seg_msg.PointNet2_sem_seg_msg_model import get_model
+from PointNet2_sem_seg_msg.PointNet2_sem_seg_model import get_model
 from torch_scatter import scatter
 import torch.profiler
 
 # import torch_geometric.transforms as T
-from PointNet2_sem_seg_msg.PointNet2_sem_seg_msg_loader import SemanticKitti
+from PointNet2_sem_seg_msg.PointNet2_sem_seg_loader import SemanticKitti
 # from torch_geometric.loader import DataLoader
 from torch.utils.data import DataLoader
 
@@ -36,7 +36,7 @@ from utils import tboard, utils
 data_path = '/Volumes/scratchdata/kitti/dataset/'
 # DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml' #
 DATA_path = './semantic-kitti.yaml' # for running in docker
-save_path = './run_msg'
+save_path = './run_sem'
 
 testing_sequences = ['00', '01']
 
@@ -67,21 +67,21 @@ loss_w[ignore_label] = 0 # set the label to be zero so no training for this cate
 print('loss_w, check first element to be zero ', loss_w)
 
 # make run file, update for every run
-run = str(1)
+run = str(0)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
 print('Run Number is :', run)
 
 # create a SummaryWriter to write logs to a log directory
-log_path = 'msg_log'
+log_path = 'sem_log'
 log_path = os.path.join(log_path, run) # train/test info path
 writer = SummaryWriter(log_dir=log_path, filename_suffix=time.strftime("%Y%m%d_%H%M%S"))
 
 # device = torch.device('cpu') # only for debugging
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = get_model(train_dataset.get_n_classes()).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-4)
 nloss = torch.nn.NLLLoss(weight=loss_w).to(device)
 
 
@@ -164,7 +164,7 @@ def test(loader, model):
     for (points, labels) in loader:
         points, labels = points.to(device), labels.to(device)
         out, _ = model(points)
-        # print('out.size: ', out.size(), 'labels.size: ', labels.size())
+        print('out.size: ', out.size(), 'labels.size: ', labels.size())
         # TODO: change the data.ptr to batch the data
         # Break down for each batch
         # sizes = (data.ptr[1:] - data.ptr[:-1]).tolist()
