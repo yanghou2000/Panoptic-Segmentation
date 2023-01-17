@@ -17,3 +17,6 @@ PointNet2_sem_seg_msg/__pycache__
 run/
 run_msg/
 run_sem/
+run.bash
+testing.py
+tmp_testing.py
