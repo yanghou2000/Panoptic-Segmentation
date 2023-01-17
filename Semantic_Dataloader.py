@@ -190,13 +190,13 @@ if __name__=='__main__':
     #get learning_map and learning_map_inv
     DATA_dir = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
     mydataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
-                                    sequences=['00'], 
+                                    sequences=['00', '01'], 
                                     DATA_dir = DATA_dir)
-    print(mydataset[0])
-    print(mydataset[0].y[6:10,:])
-    print(f'pos: {type(mydataset[0].pos)}')
-    print(mydataset.map_loss_weight())
-    # print(f'len: {mydataset.len()}')
+    # print(mydataset[0])
+    # print(mydataset[0].y[6:10,:])
+    # print(f'pos: {type(mydataset[0].pos)}')
+    # print(mydataset.map_loss_weight())
+    print(f'len: {mydataset.len()}')
     # print(f'original label: {mydataset[0].y[-10:]}, type: {type(mydataset[0].y)}')
     # print(f'orignial label string: {mydataset[0].label_string[-10:]}')
     # print(f'mapped label: {mydataset[0].map_label[-10:]}')

@@ -6,3 +6,14 @@ testing/
 tmp_testing/
 utils.py/__pycache__
 model/__pycache__
+PointNet2_sem_seg_msg/__pycache__
+draft_log/
+log_sem/
+log_tmp/
+logs/
+msg_log/
+Out/
+PointNet2_sem_seg_msg/__pycache__
+run/
+run_msg/
+run_sem/
