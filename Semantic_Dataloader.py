@@ -147,7 +147,11 @@ class SemanticKittiGraph(Dataset):
         # pos:Node position matrix with shape [num_nodes, num_dimensions]
         # data = Data(pos=points, y=label.long)
         map_label = torch.from_numpy(np.array(map_label))
-        data = Data(pos=points, y=map_label.long())
+
+        # add instance label
+        inst_label = torch.from_numpy(np.array(inst_label))
+
+        data = Data(pos=points, y=map_label.long(), z=inst_label.long())
         return data
     
     def get_n_classes(self):
@@ -157,7 +161,7 @@ class SemanticKittiGraph(Dataset):
         return self.labels[idx]
 
     def get_xentropy_class_string(self, idx):
-        print(self.labels[self.learning_map_inv[idx]])
+        # print(self.labels[self.learning_map_inv[idx]])
         return self.labels[self.learning_map_inv[idx]]
 
     def to_original(self, label):
@@ -187,19 +191,23 @@ class SemanticKittiGraph(Dataset):
 
 #Define a main function
 if __name__=='__main__':
-    #get learning_map and learning_map_inv
     DATA_dir = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
     mydataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
                                     sequences=['00', '01'], 
                                     DATA_dir = DATA_dir)
-    # print(mydataset[0])
     # print(mydataset[0].y[6:10,:])
     # print(f'pos: {type(mydataset[0].pos)}')
     # print(mydataset.map_loss_weight())
     print(f'len: {mydataset.len()}')
+    print(mydataset[0].pos)
+    print(mydataset[0].y)
+    # print(mydataset[0].z[:2000])
     # print(f'original label: {mydataset[0].y[-10:]}, type: {type(mydataset[0].y)}')
     # print(f'orignial label string: {mydataset[0].label_string[-10:]}')
     # print(f'mapped label: {mydataset[0].map_label[-10:]}')
     # print(f'mapped label string: {mydataset[0].map_label_string[-10:]}')
-
-
+    for i in (mydataset[0].z):
+        if i != 0:
+            print(i)
+        else:
+            continue
