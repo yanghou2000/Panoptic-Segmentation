@@ -14,7 +14,7 @@ class Net(torch.nn.Module):
         super().__init__()
 
         # Input channels account for both `pos` and node features.
-        self.sa1_module = SAModule(0.2, 0.2, MLP([3, 64, 64, 128]))
+        self.sa1_module = SAModule(0.02, 0.2, MLP([3, 64, 64, 128])) # ratio, r, nn
         self.sa2_module = SAModule(0.25, 0.4, MLP([128 + 3, 128, 128, 256]))
         self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024]))
 
@@ -29,17 +29,25 @@ class Net(torch.nn.Module):
         self.lin3 = torch.nn.Linear(128, num_classes)
 
     def forward(self, data):
+        # Shared encoder
         sa0_out = (None, data.pos, data.batch)
         sa1_out = self.sa1_module(*sa0_out)
         sa2_out = self.sa2_module(*sa1_out)
         sa3_out = self.sa3_module(*sa2_out)
 
-        fp3_out = self.fp3_module(*sa3_out, *sa2_out)
-        fp2_out = self.fp2_module(*fp3_out, *sa1_out)
-        x, _, _ = self.fp1_module(*fp2_out, *sa0_out)
+        # Semantic branch
+        sem_fp3_out = self.fp3_module(*sa3_out, *sa2_out)
+        sem_fp2_out = self.fp2_module(*sem_fp3_out, *sa1_out)
+        sem_x, _, _ = self.fp1_module(*sem_fp2_out, *sa0_out)
 
-        # log_softmax
-        return self.mlp(x).log_softmax(dim=-1)
+        sem_out = self.mlp(sem_x).log_softmax(dim=-1) # output probabilities for each class [N_points X N_class]
+
+        # Instane branch
+        inst_fp3_out = self.fp3_module(*sa3_out, *sa2_out)
+        inst_fp2_out = self.fp2_module(*inst_fp3_out, *sa1_out)
+        inst_out, _, _ = self.fp1_module(*inst_fp2_out, *sa0_out) # output features [N_points X N_features]
+
+        return sem_out, inst_out
 
 class FPModule(torch.nn.Module):
     def __init__(self, k, nn):
