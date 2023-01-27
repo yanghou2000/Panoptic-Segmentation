@@ -46,9 +46,13 @@ class DiscriminativeLoss(nn.Module):
             mean = torch.zeros_like(input[i]) #torch.size(5,4096)
             for j in num_cluster:
                 target_flage = target[i] == j #torch.size(4096) type(Boolean)
+                # print(f'target_flage: {target_flage}')
                 input_sample = input[i] * target_flage.unsqueeze(0).expand(n_feature,num_points) #torch.size(5,4096) feature of the j-th instance
+                # print(f'input_sample: {input_sample}')
                 mean_sample = input_sample.sum(1) / target_flage.sum() #torch.size(5)
+                # print(f'mean_sample: {mean_sample}')
                 m = target_flage.unsqueeze(0).expand(n_feature,num_points) * mean_sample.unsqueeze(1) #torch.size(5,4096)
+                # print(f'm: {m}')
                 mean += m
             means.append(mean)
         means = torch.stack(means)
@@ -109,9 +113,12 @@ class DiscriminativeLoss(nn.Module):
         return reg_term
 
 if __name__ == '__main__':
-    points = torch.randn(16, 5, 4096).cuda()
-    target1 = torch.randint(0,3,(8,4096)).cuda()
-    target2 = torch.randint(7,8,(8,4096)).cuda()
+    # points = torch.randn(16, 5, 4096)
+    # target1 = torch.randint(0,3,(8,4096))
+    # target2 = torch.randint(7,8,(8,4096))
+    points = torch.randn(16, 6, 10).cuda()
+    target1 = torch.randint(0,3,(8,10)).cuda()
+    target2 = torch.randint(7,8,(8,10)).cuda()
     # target3 = torch.randint(0,5,(16,4096)).cuda()
     # print(points.shape,'line 115')
     target = torch.cat((target1,target2),dim=0)
