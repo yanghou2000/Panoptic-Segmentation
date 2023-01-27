@@ -19,6 +19,7 @@ from torch_geometric.data import Dataset, Data
 from torch.utils.tensorboard import SummaryWriter
 
 from utils import tboard, utils
+from utils.discriminative_loss import DiscriminativeLoss
 from model.PointNet2 import Net
 
 # define the gpu index to train
@@ -27,16 +28,17 @@ os.environ["CUDA_VISIBLE_DEVICES"]="1"
 data_path = '/Volumes/scratchdata/kitti/dataset/'
 # DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml' #
 DATA_path = './semantic-kitti.yaml' # for running in docker
-save_path = './run'
+save_path = './run_inst'
 
 testing_sequences = ['00']
 
-train_sequences = ['00', '01', '02', '03', '04', '05', '06']
-val_sequences = ['07']
-test_sequences = ['08', '09', '10']
+train_sequences = ['00', '01', '02', '03', '04', '05', '06', '07']
+val_sequences = ['08']
+test_sequences = ['09', '10']
 
+# Debugging test going on...
 train_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
-                                sequences= train_sequences, 
+                                sequences= testing_sequences, 
                                 DATA_dir=DATA_path)
 
 test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
@@ -44,6 +46,7 @@ test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/datase
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
+
 train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
                           drop_last=True)
 test_loader = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
@@ -58,24 +61,25 @@ loss_w[ignore_label] = 0 # set the label to be zero so no training for this cate
 print('loss_w, check first element to be zero ', loss_w)
 
 # make run file, update for every run
-run = str(8)
+run = str(1)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
 print('Run Number is :', run)
 
 # create a SummaryWriter to write logs to a log directory
-log_path = 'tmp_log'
+log_path = 'log_draft'
 log_path = os.path.join(log_path, run) # train/test info path
 writer = SummaryWriter(log_dir=log_path, filename_suffix=time.strftime("%Y%m%d_%H%M%S"))
 
 # device = torch.device('cpu') # only for debugging
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Net(train_dataset.get_n_classes()).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-nloss = torch.nn.NLLLoss(weight=loss_w).to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.002)
+nloss = torch.nn.NLLLoss(weight=loss_w).to(device) # semantic branch loss
+discriminative_loss = DiscriminativeLoss(delta_var=0.5, delta_dist=1.5,norm=1, alpha=1.0, beta=1.0, gamma=0.001,usegpu=True) # instance branch loss
 
-# TODO: ignore class label 0
+
 # TODO: modify train acc metric after igonoring class label 0
 def train(epoch):
     model.train()
@@ -95,16 +99,22 @@ def train(epoch):
             with_stack=True
     ) as prof:
         for i, data in enumerate(train_loader):
-            # check start time
-            # start = timeit.default_timer()
             data_time.append(time.time() - end)
             data = data.to(device)
             optimizer.zero_grad()
             forward_start = time.time()
-            out = model(data)
+            sem_out, inst_out = model(data)
             forward_time.append(time.time() - forward_start)
-            # negative log likelihood loss. Input should be log-softmax
-            loss = nloss(out, data.y.cuda())
+
+            # Semantic negative log likelihood loss. Input should be log-softmax
+            sem_loss = nloss(sem_out, data.y.cuda())
+
+            # Instance discriminative loss. Input should be
+            inst_loss = discriminative_loss(inst_out.permute(1, 0).unsqueeze(0), data.z) # input size: [NpXNe] -> [BXNeXNp] defined in discriminative loss
+
+            # Combine semantic and instance losses together
+            loss = sem_loss + inst_loss
+            
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -118,7 +128,7 @@ def train(epoch):
             
             total_time.append(time.time() - end)
 
-            if (i + 1) % 10 == 0:
+            if (i + 1) % 50 == 0:
                 # print(f'[{i+1}/{len(train_loader)}] Loss: {total_loss / 50:.4f} '
                 #       f'Train Acc: {correct_nodes / total_nodes:.4f}')
                 # print(f'[{i+1}/{Length}] Loss: {total_loss / 10:.4f} '
@@ -146,20 +156,17 @@ def test(loader, model):
 
     # list to store the metrics for every batch
     ious, mious = [], []
-    y_map = torch.empty(loader.dataset.get_n_classes(), device=device).long()
-    #TODO: change the 20 into a variable. Currently the 20 categories inlcude the unlabled class which
-    #should be removed. After removal there should be 19
-    # data_category = list(range(20))
+    #TODO: debugging the test script and add instance branch evaluation 
     for data in loader:
         data = data.to(device)
-        outs = model(data)
+        sem_outs, inst_outs = model(data)
 
         # Break down for each batch
         sizes = (data.ptr[1:] - data.ptr[:-1]).tolist()
-        for out, y in zip(outs.split(sizes), data.y.split(sizes)):
+        for sem_out, inst_out, sem_label, inst_label in zip(sem_outs.split(sizes), inst_outs.split(sizes), data.y.split(sizes), data.z.split(sizes)):
 
-            print('out.size: ', out.size(), 'y.size: ', y.size())
-            iou = utils.calc_iou_per_cat(out, y, num_classes=20, ignore_index=ignore_label)
+            print('sem_out.size: ', sem_out.size(), 'sem_label.size: ', sem_label.size())
+            iou = utils.calc_iou_per_cat(sem_out, sem_label, num_classes=20, ignore_index=ignore_label)
 
             miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
 
