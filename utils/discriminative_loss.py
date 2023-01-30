@@ -72,9 +72,9 @@ class DiscriminativeLoss(nn.Module):
             num_cluster = torch.unique(target[i])
             for j in num_cluster:
                 target_flage = target[i] == j #torch.size(4096) type(Boolean)
-                c_var = (var[i] * target_flage).sum()/target_flage.sum()
+                c_var = (var[i] * target_flage).sum()/target_flage.sum() # divided by number of points in instance j
                 var_term += c_var
-            var_term / len(num_cluster)
+            var_term /= len(num_cluster)
         var_term /= bs
         return var_term
 
@@ -98,6 +98,7 @@ class DiscriminativeLoss(nn.Module):
                 margin = margin.cuda()
             c_dist = torch.sum(torch.clamp(margin - torch.norm(diff, self.norm, 0), min=0) ** 2)
             dist_term += c_dist / (mean_cluster.shape[1] * (mean_cluster.shape[1]-1))
+            dist_term /= len(num_cluster)
         dist_term /= bs
         return dist_term
 
@@ -109,6 +110,7 @@ class DiscriminativeLoss(nn.Module):
             # n_features, n_clusters
             mean_cluster = torch.unique(c_means[i],dim=1)
             reg_term += torch.mean(torch.norm(mean_cluster, self.norm, 0))
+            reg_term /= len(num_cluster)
         reg_term /= bs
         return reg_term
 
