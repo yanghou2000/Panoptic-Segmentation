@@ -17,6 +17,11 @@ class SemanticKittiGraph(Dataset):
         self.nclasses = len(self.learning_map_inv)
         self.scan_names, self.label_names = [], []
 
+                              #  ['car', 'bicycle','motorcycle', 'truck', 'other-vehicle','person', 'bicyclist', 'motorcyclist']
+        self.thing_in_xentropy = [1, 2, 3, 4, 5, 6, 7, 8]
+                              #  ['road', 'parking', 'sidewalk', 'other-ground', 'building', 'fence', 'vegetation', 'trunk', 'terrain', 'pole', 'traffic-sign']
+        self.stuff_in_xentropy = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
         # Iterate through sequences 
         for sequence in self.sequences:
 
@@ -133,7 +138,7 @@ class SemanticKittiGraph(Dataset):
         inst_label = label >> 16
 
         # label_string = [self.get_original_class_string(i) for i in sem_label] # suppress for speed
-        map_label = [self.to_xentropy(i) for i in sem_label]
+        map_sem_label = [self.to_xentropy(i) for i in sem_label]
         # map_label_string = [self.get_xentropy_class_string(i) for i in map_label] # suppress for speed      
         
         
@@ -146,12 +151,12 @@ class SemanticKittiGraph(Dataset):
 
         # pos:Node position matrix with shape [num_nodes, num_dimensions]
         # data = Data(pos=points, y=label.long)
-        map_label = torch.from_numpy(np.array(map_label))
+        map_sem_label = torch.from_numpy(np.array(map_sem_label))
 
         # add instance label
         inst_label = torch.from_numpy(np.array(inst_label))
 
-        data = Data(pos=points, y=map_label.long(), z=inst_label.long())
+        data = Data(pos=points, y=map_sem_label.long(), z=inst_label.long())
         return data
     
     def get_n_classes(self):

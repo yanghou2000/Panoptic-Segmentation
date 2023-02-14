@@ -20,6 +20,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 from utils import tboard, utils
 from utils.discriminative_loss import DiscriminativeLoss
+from utils.clustering import cluster
+from utils.eval import preprocess_pred_inst
+from utils.semantic_kitti_eval_np import PanopticEval
+
 from model.PointNet2 import Net
 
 # define the gpu index to train
@@ -61,7 +65,7 @@ loss_w[ignore_label] = 0 # set the label to be zero so no training for this cate
 print('loss_w, check first element to be zero ', loss_w)
 
 # make run file, update for every run
-run = str(1)
+run = str(3)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
@@ -103,14 +107,15 @@ def train(epoch):
             data = data.to(device)
             optimizer.zero_grad()
             forward_start = time.time()
-            sem_out, inst_out = model(data)
+            sem_pred, inst_out = model(data) # inst_out size: [NpXNe]
+            # print(f'inst_out.size: {inst_out.size()}', f'data.z.shape: {data.z.size()}')
             forward_time.append(time.time() - forward_start)
 
             # Semantic negative log likelihood loss. Input should be log-softmax
-            sem_loss = nloss(sem_out, data.y.cuda())
+            sem_loss = nloss(sem_pred, data.y.cuda())
 
             # Instance discriminative loss. Input should be
-            inst_loss = discriminative_loss(inst_out.permute(1, 0).unsqueeze(0), data.z) # input size: [NpXNe] -> [BXNeXNp] defined in discriminative loss
+            inst_loss = discriminative_loss(inst_out.permute(1, 0).unsqueeze(0), data.z.unsqueeze(0)) # input size: [NpXNe] -> [1XNeXNp] defined in discriminative loss, target size: [1XNp] -> [1X1xNp]
 
             # Combine semantic and instance losses together
             loss = sem_loss + inst_loss
@@ -155,34 +160,84 @@ def test(loader, model):
     model.eval()
 
     # list to store the metrics for every batch
-    ious, mious = [], []
+    # ious, mious = [], []
+    pq_list, sq_list, rq_list, all_pq_list, all_sq_list, all_rq_list, iou_list, all_iou_list = [], [], [], [], [], [], [], []
     #TODO: debugging the test script and add instance branch evaluation 
     for data in loader:
         data = data.to(device)
-        sem_outs, inst_outs = model(data)
+        sem_preds, inst_outs = model(data) # sem_preds size: [NpXNc], inst_outs size: [NpXNe]
 
-        # Break down for each batch
+        # break down for each batch
         sizes = (data.ptr[1:] - data.ptr[:-1]).tolist()
-        for sem_out, inst_out, sem_label, inst_label in zip(sem_outs.split(sizes), inst_outs.split(sizes), data.y.split(sizes), data.z.split(sizes)):
+        for sem_pred, inst_out, sem_label, inst_label in zip(sem_preds.split(sizes), inst_outs.split(sizes), data.y.split(sizes), data.z.split(sizes)):
+            
+            # # semantic branch
+            # # print('sem_pred.size: ', sem_pred.size(), 'sem_label.size: ', sem_label.size())
+            # iou = utils.calc_iou_per_cat(sem_pred, sem_label, num_classes=20, ignore_index=ignore_label)
+            # miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
+            # # print('iou: ', iou, 'miou: ', miou)
+            # ious.append(iou)
+            # mious.append(miou)
 
-            print('sem_out.size: ', sem_out.size(), 'sem_label.size: ', sem_label.size())
-            iou = utils.calc_iou_per_cat(sem_out, sem_label, num_classes=20, ignore_index=ignore_label)
+            # take argmax of sem_pred and ignore the unlabeled category 0. sem_pred size: [NpX20] -> [1xNp]
+            sem_pred[:, ignore_label] = torch.tensor([-float('inf')])
+            sem_pred = sem_pred.argmax(-1)
 
-            miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
+            # normalize point features by mean and standard deviation for better clustering
+            inst_out_mean = torch.mean(inst_out, dim=0)
+            print('inst_out_mean', inst_out_mean)
+            inst_out_std = torch.std(inst_out, dim=0)
+            print('inst_out_std', inst_out_std)
+            inst_out = (inst_out - inst_out_mean) / inst_out_std
+            print('inst_out', inst_out)
 
-            print('iou: ', iou, 'miou: ', miou)
-            ious.append(iou)
-            mious.append(miou)
+            # # instance branch
+            inst_num_clusters, inst_pred, inst_cluster_centers = cluster(inst_out, bandwidth=2.0, n_jobs=-1) # dtype=torch
+            
+            # to device
+            inst_pred = inst_pred.to(device)
 
-    # process mious and ious into right format
-    ious = torch.cat(ious, dim=-1).reshape(-1, 20) # concatenate into a tensor of tensors
-    mious = torch.as_tensor(mious) # convert list into view of tensor
+            # PQ evaluation
+            print('sem_pred.size', sem_pred.size())
+            print('inst_pred.size', inst_pred.size())
+            print('sem_label.size', sem_label.size())
+            print('inst_label.size', inst_label.size())
+            sem_pred, inst_pred, sem_label, inst_label = preprocess_pred_inst(sem_pred, inst_pred, sem_label, inst_label) # convert to numpy int 
+            evaluator = PanopticEval(20, ignore=[ignore_label])
+            evaluator.addBatch(sem_pred, inst_pred, sem_label, inst_label)
+            pq, sq, rq, all_pq, all_sq, all_rq = evaluator.getPQ()
+            iou, all_iou = evaluator.getSemIoU() # IoU over all classes, IoU for each class
 
+            # append values into lists
+            pq_list.append(pq)
+            sq_list.append(sq)
+            rq_list.append(rq)
+            all_pq_list.append(all_pq)
+            all_sq_list.append(all_sq)
+            all_rq_list.append(all_rq)
+            iou_list.append(iou)
+            all_iou_list.append(all_iou)
+
+
+    # # process mious and ious into right format
+    # ious = torch.cat(ious, dim=-1).reshape(-1, 20) # concatenate into a tensor of tensors
+    # mious = torch.as_tensor(mious) # convert list into view of tensor
+
+    # # average over test set
+    # ious_avr = utils.averaging_ious(ious) # record the number of nan in each array, filled with 0, take sum, divied by (num_classes-number of nan)
+    # miou_avr = torch.sum(mious) / mious.size()[0]
+    
     # average over test set
-    ious_avr = utils.averaging_ious(ious) # record the number of nan in each array, filled with 0, take sum, divied by (num_classes-number of nan)
-    miou_avr = torch.sum(mious) / mious.size()[0]
+    pq_list_avr = np.mean(pq_list, axis=1)
+    sq_list_avr = np.mean(pq_list, axis=1)
+    rq_list_avr = np.mean(rq_list, axis=1)
+    all_pq_list_avr = np.mean(all_pq_list, axis=0)
+    all_sq_list_avr = np.mean(all_sq_list, axis=0)
+    all_rq_list_avr = np.mean(all_rq_list, axis=0)
+    iou_list_avr = np.mean(iou_list, axis=1)
+    all_iou_list_avr = np.mean(all_iou_list, axis=0)
 
-    return ious_avr, miou_avr
+    return pq_list_avr, sq_list_avr, rq_list_avr, all_pq_list_avr, all_sq_list_avr, all_rq_list_avr, iou_list_avr, all_iou_list_avr
 
 
 for epoch in range(11): # original is (1, 31)
@@ -192,14 +247,27 @@ for epoch in range(11): # original is (1, 31)
     torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
     print(f'Finished saving model {epoch}')
 
-    ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
+    # # debugging test by loading model
+    # state_dict = torch.load('./run_inst/2/Epoch_0_20230211_182726.pth')['net']
+    # model.load_state_dict(state_dict)
+
+    # ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
+    pq_list, sq_list, rq_list, all_pq_list, all_sq_list, all_rq_list, iou_list, all_iou_list = test(test_loader, model)
     print(f'Finished testing {epoch}')
 
-    writer.add_scalar('test/miou', miou_all, epoch) # miou
-    tboard.add_iou(writer, ious_all, epoch, DATA_path) # iou for each category
+    # tensorboarding
+    writer.add_scalar('test/pq', pq_list, epoch)
+    writer.add_scalar('test/sq', sq_list, epoch)
+    writer.add_scalar('test/rq', rq_list, epoch)
+    writer.add_scalar('test/miou', iou_list, epoch) # miou
+
+    tboard.add_list(writer, all_pq_list, epoch, DATA_path) 
+    tboard.add_list(writer, all_sq_list, epoch, DATA_path)
+    tboard.add_list(writer, all_rq_list, epoch, DATA_path)
+    tboard.add_list(writer, all_iou_list, epoch, DATA_path)
     print(f'Finished tensorboarding {epoch}')
 
-    print(f'Finished Epoch: {epoch:02d}, Test IoU: {miou_all:.4f}')
+    print(f'Finished Epoch: {epoch:02d}')
     
 print('All finished!')
     
