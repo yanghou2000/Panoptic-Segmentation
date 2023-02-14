@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import yaml
 
 def calc_iou_per_cat(pred, target, num_classes, ignore_index):
@@ -65,6 +66,15 @@ def averaging_ious(ious):
 
     return processed_iou
 
+# def inst_eval(inst_label, inst_pred, sem_label, sem_pred):
+#     '''Evaluation part, already use predictions to mask out stuff and unlabeled classes'''
+#     # get thing mask
+#     thing_mask = torch.where(inst_label == 0)
+    
+#     # TODO: be careful of the situation where the entire inst_label list is masked out, return is tensor[[]]
+#     thing_masked_inst_label = inst_label[thing_mask] # get a reduced tensor list [1XNtp], where Ntp is number of elements unequal to 0
+#     thing_masked_inst_pred = inst_pred[thing_mask]
+
 
 def get_xentropy_class_string(label, DATA_path):
     DATA = yaml.safe_load(open(DATA_path, 'r'))
@@ -72,25 +82,4 @@ def get_xentropy_class_string(label, DATA_path):
     # print(labels[learning_map_inv[label]])
     return labels[learning_map_inv[label]]
 
-# # do not ignore labels when calculating iou for each category
-# def calc_iou(pred, target, num_classes):
-#     # Initialize a tensor to store the IoU for each class
-#     iou_per_class = torch.zeros(num_classes)
 
-#     # Iterate over each class
-#     for c in range(num_classes):
-#         # Create masks that identify the predicted and target elements for class c
-#         pred_mask = (pred == c)
-#         target_mask = (target == c)
-
-#         # Compute the area of the intersection of the predicted and target tensors for class c
-#         intersection = (pred_mask * target_mask).sum()
-
-#         # Compute the area of the union of the predicted and target tensors for class c
-#         union = pred_mask.sum() + target_mask.sum() - intersection
-
-#         # Compute the IoU for class c as the ratio of the intersection to the union
-#         iou_per_class[c] = intersection / union
-
-#     # Return the IoU tensor
-#     return iou_per_class

@@ -42,6 +42,7 @@ class DiscriminativeLoss(nn.Module):
         bs, n_feature, num_points = input.size()
         means = []
         for i in range(bs):
+            # TODO: need to deal with target[i], as it only extracts one element in target
             num_cluster = torch.unique(target[i])
             mean = torch.zeros_like(input[i]) #torch.size(5,4096)
             for j in num_cluster:
@@ -110,7 +111,7 @@ class DiscriminativeLoss(nn.Module):
             # n_features, n_clusters
             mean_cluster = torch.unique(c_means[i],dim=1)
             reg_term += torch.mean(torch.norm(mean_cluster, self.norm, 0))
-            reg_term /= len(num_cluster)
+            reg_term /= len(mean_cluster)
         reg_term /= bs
         return reg_term
 

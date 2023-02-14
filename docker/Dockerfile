@@ -24,6 +24,9 @@ RUN pip3 install torch-scatter torch-sparse torch-cluster torch-spline-conv clas
 #RUN #pip3 install -r /tmp/requirements.txt
 #RUN rm -rf /tmp/requirements.txt
 
+# Install sklearn
+RUN pip install sklearn
+
 # Install TensorBoard
 RUN pip install tensorboard
 

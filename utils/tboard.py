@@ -1,7 +1,7 @@
 from torch.utils.tensorboard import SummaryWriter
 from utils import utils
 
-def add_iou(writer,ious,epoch, DATA_path):
+def add_list(writer,ious,epoch, DATA_path):
     for ncls in range(len(ious)):
         # write class number to class str function
         class_name = utils.get_xentropy_class_string(ncls, DATA_path)
