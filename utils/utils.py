@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import yaml
+import os
 
 def calc_iou_per_cat(pred, target, num_classes, ignore_index):
     """The iou for ignored category will always be zero
@@ -83,3 +84,18 @@ def get_xentropy_class_string(label, DATA_path):
     return labels[learning_map_inv[label]]
 
 
+def save_tensor_to_disk(label, filename, filepath, run):
+
+    filepath = os.path.join(filepath, run, filename)
+
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    with open(filepath, 'wb') as f:
+        torch.save(label, f)
+
+
+def open_tensor_from_disk(label, filepath):
+    with opern(filepath, 'rb') as f:
+        things_to_load = torch.load(f)
+    return things_to_load

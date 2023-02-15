@@ -12,7 +12,7 @@ from torch import exp, sqrt
 # This class if copied from repo: https://github.com/thanhkaist/MeanShiftClustering/blob/master/mean-shift-pytorch-gpu.py
 class MeanShift_GPU():
     ''' Do meanshift clustering with GPU support'''
-    def __init__(self,bandwidth = 2.5, batch_size = 1000, max_iter = 10, eps = 1e-5, check_converge = False):
+    def __init__(self, bandwidth = 2.5, batch_size = 1000, max_iter = 10, eps = 1e-5, check_converge = False):
         self.max_iter = max_iter
         self.batch_size = batch_size
         self.bandwidth = bandwidth
@@ -21,18 +21,23 @@ class MeanShift_GPU():
         self.check_converge = check_converge # Check converge will take 1.5 time longer
           
     def distance_batch(self,a,B):
-        ''' Return distance between each element in a to each element in B'''
-        return sqrt(((a[None,:] - B[:,None])**2)).sum(2)
+        ''' Return distance between each element in a to each element in B '''
+        # breakpoint()
+
+        # return sqrt(((a[None,:] - B[:,None])**2)).sum(2)
+        return torch.cdist(B, a, p=2, compute_mode="donot_use_mm_for_euclid_dist")
     
     def distance(self,a,b):
-        return np.sqrt(((a-b)**2).sum())
+        # return np.sqrt(((a-b)**2).sum())
+        return torch.cdist(b, a, p=2, compute_mode="donot_use_mm_for_euclid_dist")
     
     def fit(self,data):
         with torch.no_grad():
             n = len(data)
             if not data.is_cuda:
                 data_gpu = data.cuda()
-            
+            else:
+                data_gpu = data
             X = data_gpu.clone()
             #X = torch.from_numpy(np.copy(data)).cuda()
             
@@ -49,7 +54,13 @@ class MeanShift_GPU():
                         weight = self.gaussian(dis, self.bandwidth)
                     else:
                         weight = self.gaussian(self.distance_batch(X,X[s]), self.bandwidth)
+                    breakpoint()
+                    # weight[:,:,None].shape=[1000xNpx1]
+                    # X.shape=[NpxNe]
+                    # (weight[:,:,None]*X).shape=[1000xNpxNe]
+                    # (weight[:,:,None]*X).sum(dim=1).size=[1000xNe]
                     num = (weight[:,:,None]*X).sum(dim=1)
+
                     X[s] = num / weight.sum(1)[:,None]                    
                     
                 #import pdb; pdb.set_trace()
@@ -95,7 +106,6 @@ class MeanShift_GPU():
                     cluster_centers.append(point)
                     cluster_idx += 1
         return cluster_ids, cluster_centers
-
 
 
 def cluster(prediction, bandwidth, n_jobs):

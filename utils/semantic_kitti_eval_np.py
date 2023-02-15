@@ -281,3 +281,5 @@ if __name__ == "__main__":
   for i, (pq, sq, rq, iou) in enumerate(zip(all_pq, all_sq, all_rq, all_iou)):
     print("Class", cl_strings[i], "\t", "PQ:", pq.item(), "SQ:", sq.item(), "RQ:", rq.item(), "IoU:", iou.item())
   print(all_pq)
+
+

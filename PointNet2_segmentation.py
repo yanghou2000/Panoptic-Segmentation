@@ -20,19 +20,23 @@ from torch.utils.tensorboard import SummaryWriter
 
 from utils import tboard, utils
 from utils.discriminative_loss import DiscriminativeLoss
-from utils.clustering import cluster
+# from utils.clustering import cluster # sklearn clustering
+# from utils.clustering import MeanShift_GPU # GPU clustering
+from utils.meanshift.mean_shift_gpu import MeanShiftEuc
 from utils.eval import preprocess_pred_inst
 from utils.semantic_kitti_eval_np import PanopticEval
+from utils.utils import save_tensor_to_disk
 
 from model.PointNet2 import Net
 
 # define the gpu index to train
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 data_path = '/Volumes/scratchdata/kitti/dataset/'
 # DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml' #
 DATA_path = './semantic-kitti.yaml' # for running in docker
 save_path = './run_inst'
+prediction_path = './panoptic_data'
 
 testing_sequences = ['00']
 
@@ -53,7 +57,7 @@ torch.manual_seed(42)
 
 train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
                           drop_last=True)
-test_loader = DataLoader(test_dataset, batch_size=6, shuffle=False, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
+test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
                          drop_last=True)
 
 # add ignore index for ignore labels in training and testing
@@ -108,6 +112,12 @@ def train(epoch):
             optimizer.zero_grad()
             forward_start = time.time()
             sem_pred, inst_out = model(data) # inst_out size: [NpXNe]
+
+            # save to disk
+            # # TODO: might need to move out of the enumeration loop
+            # save_tensor_to_disk(sem_pred, 'sem_pred.bin', prediction_path, run)
+            # save_tensor_to_disk(inst_out, 'inst_out.bin', prediction_path, run)
+
             # print(f'inst_out.size: {inst_out.size()}', f'data.z.shape: {data.z.size()}')
             forward_time.append(time.time() - forward_start)
 
@@ -192,16 +202,19 @@ def test(loader, model):
             print('inst_out', inst_out)
 
             # # instance branch
-            inst_num_clusters, inst_pred, inst_cluster_centers = cluster(inst_out, bandwidth=2.0, n_jobs=-1) # dtype=torch
+            # inst_num_clusters, inst_pred, inst_cluster_centers = cluster(inst_out, bandwidth=2.0, n_jobs=-1) # dtype=torch
+            meanshift = MeanShiftEuc(bandwidth=0.6)
+            clustering = meanshift.fit(inst_out)
+            inst_pred, inst_cluster_centers = clustering.labels_, clustering.cluster_centers_ # type(inst_pred)=numpy.ndarray
             
-            # to device
-            inst_pred = inst_pred.to(device)
+            # # to device
+            # inst_pred = inst_pred.to(device)
 
             # PQ evaluation
-            print('sem_pred.size', sem_pred.size())
-            print('inst_pred.size', inst_pred.size())
-            print('sem_label.size', sem_label.size())
-            print('inst_label.size', inst_label.size())
+            # print('sem_pred.size', sem_pred.size())
+            # print('inst_pred.size', inst_pred.size()) # not callable, inst_pred is np.array
+            # print('sem_label.size', sem_label.size())
+            # print('inst_label.size', inst_label.size())
             sem_pred, inst_pred, sem_label, inst_label = preprocess_pred_inst(sem_pred, inst_pred, sem_label, inst_label) # convert to numpy int 
             evaluator = PanopticEval(20, ignore=[ignore_label])
             evaluator.addBatch(sem_pred, inst_pred, sem_label, inst_label)
@@ -241,15 +254,15 @@ def test(loader, model):
 
 
 for epoch in range(11): # original is (1, 31)
-    train(epoch)
-    print(f'Finished training {epoch}')
-    state = {'net':model.state_dict(), 'epoch':epoch, 'optimizer': optimizer}
-    torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
-    print(f'Finished saving model {epoch}')
+    # train(epoch)
+    # print(f'Finished training {epoch}')
+    # state = {'net':model.state_dict(), 'epoch':epoch, 'optimizer': optimizer}
+    # torch.save(state, f'{save_path}/Epoch_{epoch}_{time.strftime("%Y%m%d_%H%M%S")}.pth')
+    # print(f'Finished saving model {epoch}')
 
-    # # debugging test by loading model
-    # state_dict = torch.load('./run_inst/2/Epoch_0_20230211_182726.pth')['net']
-    # model.load_state_dict(state_dict)
+    # debugging test by loading model
+    state_dict = torch.load('./run_inst/3/Epoch_0_20230215_003206.pth')['net']
+    model.load_state_dict(state_dict)
 
     # ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
     pq_list, sq_list, rq_list, all_pq_list, all_sq_list, all_rq_list, iou_list, all_iou_list = test(test_loader, model)
