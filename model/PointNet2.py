@@ -18,15 +18,17 @@ class Net(torch.nn.Module):
         self.sa2_module = SAModule(0.25, 0.4, MLP([128 + 3, 128, 128, 256]))
         self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024]))
 
-        self.fp3_module = FPModule(1, MLP([1024 + 256, 256, 256]))
-        self.fp2_module = FPModule(3, MLP([256 + 128, 256, 128]))
-        self.fp1_module = FPModule(3, MLP([128, 128, 128, 128]))
+        self.sem_fp3_module = FPModule(1, MLP([1024 + 256, 256, 256]))
+        self.sem_fp2_module = FPModule(3, MLP([256 + 128, 256, 128]))
+        self.sem_fp1_module = FPModule(3, MLP([128, 128, 128, 128]))
+        # self.sem_fp1_module = FPModule(3, MLP([128+3, 128, 128, 128]))
+
+        self.inst_fp3_module = FPModule(1, MLP([1024 + 256, 256, 256]))
+        self.inst_fp2_module = FPModule(3, MLP([256 + 128, 256, 128]))
+        self.inst_fp1_module = FPModule(3, MLP([128, 128, 128, 128]))
 
         self.mlp = MLP([128, 128, 128, num_classes], dropout=0.5, norm=None)
 
-        self.lin1 = torch.nn.Linear(128, 128)
-        self.lin2 = torch.nn.Linear(128, 128)
-        self.lin3 = torch.nn.Linear(128, num_classes)
 
     def forward(self, data):
         # Shared encoder
@@ -36,16 +38,16 @@ class Net(torch.nn.Module):
         sa3_out = self.sa3_module(*sa2_out)
 
         # Semantic branch
-        sem_fp3_out = self.fp3_module(*sa3_out, *sa2_out)
-        sem_fp2_out = self.fp2_module(*sem_fp3_out, *sa1_out)
-        sem_x, _, _ = self.fp1_module(*sem_fp2_out, *sa0_out)
+        sem_fp3_out = self.sem_fp3_module(*sa3_out, *sa2_out)
+        sem_fp2_out = self.sem_fp2_module(*sem_fp3_out, *sa1_out)
+        sem_x, _, _ = self.sem_fp1_module(*sem_fp2_out, *sa0_out)
 
         sem_out = self.mlp(sem_x).log_softmax(dim=-1) # output probabilities for each class [N_points X N_class]
 
         # Instane branch
-        inst_fp3_out = self.fp3_module(*sa3_out, *sa2_out)
-        inst_fp2_out = self.fp2_module(*inst_fp3_out, *sa1_out)
-        inst_out, _, _ = self.fp1_module(*inst_fp2_out, *sa0_out) # output features [N_points X N_features]
+        inst_fp3_out = self.inst_fp3_module(*sa3_out, *sa2_out)
+        inst_fp2_out = self.inst_fp2_module(*inst_fp3_out, *sa1_out)
+        inst_out, _, _ = self.inst_fp1_module(*inst_fp2_out, *sa0_out) # output features [N_points X N_features]
 
         return sem_out, inst_out
 
