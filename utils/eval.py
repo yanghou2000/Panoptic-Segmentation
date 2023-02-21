@@ -3,18 +3,18 @@ import numpy as np
 from utils.clustering import get_inst_masks
 
 
-# def majority_vote_propogate(inst_pred, sem_pred):
-#     """Get the majority vote of semantic predictions for points in clusters of instance predictions, and propogate the majority vote for all points in the cluster so that
-#     all points in a cluster have the same semantic label. Prepare the labels to plug in semantic_kitti_eval_np.py.
-#     """
 def preprocess_pred_inst(sem_pred, inst_pred, sem_label, inst_label):
-    sem_pred, inst_pred, sem_label, inst_label = sem_pred.cpu(), inst_pred.cpu(), sem_label.cpu(), inst_label.cpu()
-    # reshape(1, -1) if needed
-    sem_pred = np.array(sem_pred, dtype=np.int64)
-    inst_pred = np.array(inst_pred, dtype=np.int64)
-    sem_label = np.array(sem_label, dtype=np.int64)
-    inst_label = np.array(inst_label, dtype=np.int64)
-    return sem_pred, inst_pred, sem_label, inst_label
+    """Convert inputs into the right format to use metric evaluation scripts."""
+    if isinstance(sem_pred, torch.Tensor):
+        sem_pred = sem_pred.cpu().numpy()
+    if isinstance(inst_pred, torch.Tensor):
+        inst_pred = inst_pred.cpu().numpy()
+    if isinstance(sem_label, torch.Tensor):
+        sem_label = sem_label.cpu().numpy()
+    if isinstance(inst_label, torch.Tensor):
+        inst_label = inst_label.cpu().numpy()
+
+    return sem_pred.astype(np.int64), inst_pred.astype(np.int64), sem_label.astype(np.int64), inst_label.astype(np.int64)
 
 
 def eval_average_precision_inst(inst_pred, sem_pred, sem_label, stuff_list):
