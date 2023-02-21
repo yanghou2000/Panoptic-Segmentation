@@ -25,7 +25,8 @@ class Net(torch.nn.Module):
 
         self.inst_fp3_module = FPModule(1, MLP([1024 + 256, 256, 256]))
         self.inst_fp2_module = FPModule(3, MLP([256 + 128, 256, 128]))
-        self.inst_fp1_module = FPModule(3, MLP([128, 128, 128, 128]))
+        # Yang: change the last layer of inst_fp1_modul from 128 to 64 to reduce size
+        self.inst_fp1_module = FPModule(3, MLP([128, 128, 128, 64]))
 
         self.mlp = MLP([128, 128, 128, num_classes], dropout=0.5, norm=None)
 
