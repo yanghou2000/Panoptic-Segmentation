@@ -8,8 +8,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from Modules import GlobalSAModule, SAModule
-from torch_scatter import scatter
+from torch_geometric.nn import fps
 import torch.profiler
+from torch_cluster import fps
+from torch_cluster import nearest
 
 import torch_geometric.transforms as T
 from Semantic_Dataloader import SemanticKittiGraph
@@ -30,9 +32,10 @@ from utils.utils import save_tensor_to_disk
 from model.PointNet2 import Net
 
 # define the gpu index to train
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
-data_path = '/Volumes/scratchdata/kitti/dataset/'
+# data_path = '/Volumes/scratchdata/kitti/dataset/'
+data_path = '/Volumes/scratchdata_smb/kitti/dataset/' # alternative path
 # DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml' #
 DATA_path = './semantic-kitti.yaml' # for running in docker
 save_path = './run_inst'
@@ -45,19 +48,19 @@ val_sequences = ['08']
 test_sequences = ['09', '10']
 
 # Debugging test going on...
-train_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
-                                sequences= testing_sequences, 
+train_dataset = SemanticKittiGraph(dataset_dir=data_path, 
+                                sequences= train_sequences, 
                                 DATA_dir=DATA_path)
 
-test_dataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
+test_dataset = SemanticKittiGraph(dataset_dir=data_path, 
                                 sequences= val_sequences, 
                                 DATA_dir=DATA_path)
 
 torch.manual_seed(42)
 
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
+train_loader = DataLoader(train_dataset, batch_size=12, shuffle=True, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
                           drop_last=True)
-test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
+test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=8, persistent_workers=torch.cuda.is_available(), pin_memory=torch.cuda.is_available(),
                          drop_last=True)
 
 # add ignore index for ignore labels in training and testing
@@ -69,7 +72,7 @@ loss_w[ignore_label] = 0 # set the label to be zero so no training for this cate
 print('loss_w, check first element to be zero ', loss_w)
 
 # make run file, update for every run
-run = str(3)
+run = str(5)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
@@ -113,11 +116,6 @@ def train(epoch):
             forward_start = time.time()
             sem_pred, inst_out = model(data) # inst_out size: [NpXNe]
 
-            # save to disk
-            # # TODO: might need to move out of the enumeration loop
-            # save_tensor_to_disk(sem_pred, 'sem_pred.bin', prediction_path, run)
-            # save_tensor_to_disk(inst_out, 'inst_out.bin', prediction_path, run)
-
             # print(f'inst_out.size: {inst_out.size()}', f'data.z.shape: {data.z.size()}')
             forward_time.append(time.time() - forward_start)
 
@@ -133,27 +131,11 @@ def train(epoch):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            # correct_nodes += out.argmax(dim=1).eq(data.y).sum().item()
-            # total_nodes += data.num_nodes
-            # print('Loss: ', loss)
-            
-            # check end time
-            # end = timeit.default_timer()
-            # print('Batch_ID: ', i, 'Eplapsed time: ', end-start)
             
             total_time.append(time.time() - end)
 
             if (i + 1) % 50 == 0:
-                # print(f'[{i+1}/{len(train_loader)}] Loss: {total_loss / 50:.4f} '
-                #       f'Train Acc: {correct_nodes / total_nodes:.4f}')
-                # print(f'[{i+1}/{Length}] Loss: {total_loss / 10:.4f} '
-                    #   f'Train Acc: {correct_nodes / total_nodes:.4f} '
-                #       f'Data Time: {datetime.timedelta(seconds=np.array(data_time).mean())} '
-                #       f'Forward Time: {datetime.timedelta(seconds=np.array(forward_time).mean())} '
-                #       f'Total Time: {datetime.timedelta(seconds=np.array(total_time).mean())}')
                 writer.add_scalar('train/total_loss', total_loss, epoch*Length+i)
-                # writer.add_scalar('train/accuracy', correct_nodes / total_nodes, epoch*Length+i)
-                # total_loss = correct_nodes = total_nodes = 0
                 total_loss = 0
                 data_time, forward_time, total_time = [], [], []
             
@@ -166,12 +148,16 @@ def train(epoch):
 # output iou and loss
 @torch.no_grad()
 def test(loader, model):
+    # ic = 0 # for quick debugging
 
     model.eval()
 
-    # list to store the metrics for every batch
-    # ious, mious = [], []
     pq_list, sq_list, rq_list, all_pq_list, all_sq_list, all_rq_list, iou_list, all_iou_list = [], [], [], [], [], [], [], []
+    
+    #TODO: add timing
+    # time_fps_list, time_norm_list, time_cluster_list, time_nearest_list = [],[],[],[]
+    # all_time_list = [] # append every time category list into one list
+    
     #TODO: debugging the test script and add instance branch evaluation 
     for data in loader:
         data = data.to(device)
@@ -181,46 +167,78 @@ def test(loader, model):
         sizes = (data.ptr[1:] - data.ptr[:-1]).tolist()
         for sem_pred, inst_out, sem_label, inst_label in zip(sem_preds.split(sizes), inst_outs.split(sizes), data.y.split(sizes), data.z.split(sizes)):
             
-            # # semantic branch
-            # # print('sem_pred.size: ', sem_pred.size(), 'sem_label.size: ', sem_label.size())
-            # iou = utils.calc_iou_per_cat(sem_pred, sem_label, num_classes=20, ignore_index=ignore_label)
-            # miou = utils.calc_miou(iou, num_classes=20, ignore_label=True)
-            # # print('iou: ', iou, 'miou: ', miou)
-            # ious.append(iou)
-            # mious.append(miou)
-
             # take argmax of sem_pred and ignore the unlabeled category 0. sem_pred size: [NpX20] -> [1xNp]
             sem_pred[:, ignore_label] = torch.tensor([-float('inf')])
             sem_pred = sem_pred.argmax(-1)
 
             # normalize point features by mean and standard deviation for better clustering
+            torch.cuda.synchronize()
+            start_time = time.time() 
+
             inst_out_mean = torch.mean(inst_out, dim=0)
-            print('inst_out_mean', inst_out_mean)
+            # print('inst_out_mean', inst_out_mean)
             inst_out_std = torch.std(inst_out, dim=0)
-            print('inst_out_std', inst_out_std)
+            # print('inst_out_std', inst_out_std)
             inst_out = (inst_out - inst_out_mean) / inst_out_std
-            print('inst_out', inst_out)
+            # print('inst_out', inst_out)
+
+            torch.cuda.synchronize()
+            end_time = time.time()
+            print(f'normalization took {end_time-start_time} seconds')
+
+            # TODO: use fps to downsample point clouds and use nearest to repropogate labels
+            torch.cuda.synchronize()
+            start_time = time.time()
+
+            inst_out_fps_idx = fps(inst_out, ratio=0.1)
+
+            torch.cuda.synchronize()
+            end_time = time.time()
+            print(f'fps took {end_time-start_time} seconds')
+
+            inst_out_buffer = inst_out # save for later propogation
+            inst_out = inst_out[inst_out_fps_idx]
 
             # # instance branch
             # inst_num_clusters, inst_pred, inst_cluster_centers = cluster(inst_out, bandwidth=2.0, n_jobs=-1) # dtype=torch
             meanshift = MeanShiftEuc(bandwidth=0.6)
-            clustering = meanshift.fit(inst_out)
-            inst_pred, inst_cluster_centers = clustering.labels_, clustering.cluster_centers_ # type(inst_pred)=numpy.ndarray
+            torch.cuda.synchronize()
+            start_time = time.time() 
+
+            clustering_fps = meanshift.fit(inst_out)
+
+            torch.cuda.synchronize()
+            end_time = time.time()
+            print(f'meanshift took {end_time-start_time} seconds')
+
+            # get fps-downsampled cluster centers
+            cluster_centers_fps = clustering_fps.cluster_centers_
+            cluster_centers_fps = torch.from_numpy(cluster_centers_fps).float()
+
+            torch.cuda.synchronize()
+            start_time = time.time() 
+
+            clustering = nearest(inst_out_buffer, cluster_centers_fps.to(device))
+
+            torch.cuda.synchronize()
+            end_time = time.time()
+            print(f'find nearest neighbors took {end_time-start_time} seconds')
+
+            # inst_pred, _ = clustering.labels_, clustering.cluster_centers_ # type(inst_pred)=numpy.ndarray
+            inst_pred = clustering # dtype = tensor
             
-            # # to device
-            # inst_pred = inst_pred.to(device)
+            # # debugging test
+            # inst_pred = inst_label
 
             # PQ evaluation
-            # print('sem_pred.size', sem_pred.size())
-            # print('inst_pred.size', inst_pred.size()) # not callable, inst_pred is np.array
-            # print('sem_label.size', sem_label.size())
-            # print('inst_label.size', inst_label.size())
             sem_pred, inst_pred, sem_label, inst_label = preprocess_pred_inst(sem_pred, inst_pred, sem_label, inst_label) # convert to numpy int 
             evaluator = PanopticEval(20, ignore=[ignore_label])
+            # breakpoint()
             evaluator.addBatch(sem_pred, inst_pred, sem_label, inst_label)
             pq, sq, rq, all_pq, all_sq, all_rq = evaluator.getPQ()
             iou, all_iou = evaluator.getSemIoU() # IoU over all classes, IoU for each class
-
+            print(pq, sq, rq, all_pq, all_sq, all_rq, iou, all_iou)
+            
             # append values into lists
             pq_list.append(pq)
             sq_list.append(sq)
@@ -230,6 +248,14 @@ def test(loader, model):
             all_rq_list.append(all_rq)
             iou_list.append(iou)
             all_iou_list.append(all_iou)
+
+            #TODO: save predictions to disk for visualization, dtype=numpy int, concatenate the inst and pred labels together into binary format
+            # save_tensor_to_disk(sem_pred, 'sem_pred.bin', prediction_path, run, sequence='08')
+
+        # if ic >= 1:
+        #     break
+        # else:
+        #     ic += 1
 
 
     # # process mious and ious into right format
@@ -241,19 +267,19 @@ def test(loader, model):
     # miou_avr = torch.sum(mious) / mious.size()[0]
     
     # average over test set
-    pq_list_avr = np.mean(pq_list, axis=1)
-    sq_list_avr = np.mean(pq_list, axis=1)
-    rq_list_avr = np.mean(rq_list, axis=1)
-    all_pq_list_avr = np.mean(all_pq_list, axis=0)
-    all_sq_list_avr = np.mean(all_sq_list, axis=0)
-    all_rq_list_avr = np.mean(all_rq_list, axis=0)
-    iou_list_avr = np.mean(iou_list, axis=1)
-    all_iou_list_avr = np.mean(all_iou_list, axis=0)
+    pq_list_avr = np.mean(pq_list, axis=0)
+    sq_list_avr = np.mean(pq_list, axis=0)
+    rq_list_avr = np.mean(rq_list, axis=0)
+    all_pq_list_avr = np.mean(all_pq_list, axis=1)
+    all_sq_list_avr = np.mean(all_sq_list, axis=1)
+    all_rq_list_avr = np.mean(all_rq_list, axis=1)
+    iou_list_avr = np.mean(iou_list, axis=0)
+    all_iou_list_avr = np.mean(all_iou_list, axis=1)
 
     return pq_list_avr, sq_list_avr, rq_list_avr, all_pq_list_avr, all_sq_list_avr, all_rq_list_avr, iou_list_avr, all_iou_list_avr
 
-
-for epoch in range(11): # original is (1, 31)
+# Yang: change from 11 to 1 for evaluting metrics
+for epoch in range(1): # original is (1, 31)
     # train(epoch)
     # print(f'Finished training {epoch}')
     # state = {'net':model.state_dict(), 'epoch':epoch, 'optimizer': optimizer}
@@ -261,11 +287,11 @@ for epoch in range(11): # original is (1, 31)
     # print(f'Finished saving model {epoch}')
 
     # debugging test by loading model
-    state_dict = torch.load('./run_inst/3/Epoch_0_20230215_003206.pth')['net']
+    state_dict = torch.load('./run_inst/5/Epoch_10_20230218_120949.pth')['net']
     model.load_state_dict(state_dict)
-
-    # ious_all, miou_all = test(test_loader, model) # metrics over the whole test set
+    
     pq_list, sq_list, rq_list, all_pq_list, all_sq_list, all_rq_list, iou_list, all_iou_list = test(test_loader, model)
+    # pq_list, sq_list, rq_list, all_pq_list, all_sq_list, all_rq_list, iou_list, all_iou_list = 0.050956726561817565, 0.07214042867747611, 0.07692307692307693, np.random.rand(20).astype(float), np.random.rand(20).astype(float), np.random.rand(20).astype(float), 0.05, np.random.rand(20).astype(float)
     print(f'Finished testing {epoch}')
 
     # tensorboarding
