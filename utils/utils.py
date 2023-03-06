@@ -84,9 +84,9 @@ def get_xentropy_class_string(label, DATA_path):
     return labels[learning_map_inv[label]]
 
 
-def save_tensor_to_disk(label, filename, filepath, run):
+def save_tensor_to_disk(label, filename, filepath, run, sequence):
 
-    filepath = os.path.join(filepath, run, filename)
+    filepath = os.path.join(filepath, run, sequence, filename)
 
     if not os.path.exists(save_path):
         os.makedirs(save_path)
@@ -99,3 +99,16 @@ def open_tensor_from_disk(label, filepath):
     with opern(filepath, 'rb') as f:
         things_to_load = torch.load(f)
     return things_to_load
+
+def save_pred_to_disk(pred, sequence, save_pred_path, run, save_idx):
+    save_path = os.path.join(save_pred_path, run, 'sequences', sequence, 'predictions') # e.g. panoptic_data/0/sequences/08/predictions
+    
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    filename = f'{save_idx:06d}.label'
+
+    # create file and write binary data
+    with open(os.path.join(save_path, filename), 'wb') as f:
+        # f.write(np.float32(pred)) # save as float 32 instead of float 64
+        f.write(pred)

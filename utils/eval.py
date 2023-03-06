@@ -14,7 +14,9 @@ def preprocess_pred_inst(sem_pred, inst_pred, sem_label, inst_label):
     if isinstance(inst_label, torch.Tensor):
         inst_label = inst_label.cpu().numpy()
 
-    return sem_pred.astype(np.int64), inst_pred.astype(np.int64), sem_label.astype(np.int64), inst_label.astype(np.int64)
+    # return sem_pred.astype(np.int64), inst_pred.astype(np.int64), sem_label.astype(np.int64), inst_label.astype(np.int64)
+    # Yang: change the type to be the same as defined in semantic-kitti-api
+    return sem_pred.astype(np.uint32), inst_pred.astype(np.uint32), sem_label.astype(np.uint32), inst_label.astype(np.uint32)
 
 
 def eval_average_precision_inst(inst_pred, sem_pred, sem_label, stuff_list):
