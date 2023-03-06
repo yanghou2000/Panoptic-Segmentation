@@ -20,3 +20,6 @@ run_sem/
 run.bash
 testing.py
 tmp_testing.py
+sem_log/
+log_draft/
+log_msg/
