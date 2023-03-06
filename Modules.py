@@ -16,26 +16,30 @@ class SAModule(torch.nn.Module):
         self.r = r  #radius of circle in which points are grouped
         self.conv = PointConv(nn, add_self_loops=False)
 
-    def forward(self, x, pos, batch):
-        # print(type(x), type(pos), x.size())
+    def forward(self, x, pos, batch, seed_idx):
+        # Yang: add idx of downsampled points to the output
         idx = fps(pos, batch, ratio=self.ratio)
         row, col = radius(pos, pos[idx], self.r, batch, batch[idx],
                           max_num_neighbors=64)
         edge_index = torch.stack([col, row], dim=0)
         x_dst = None if x is None else x[idx]
         x = self.conv((x, x_dst), (pos, pos[idx]), edge_index)
-        pos, batch = pos[idx], batch[idx]
-        return x, pos, batch
+        if seed_idx is None:
+            seed_idx = None
+        else:
+            seed_idx = seed_idx[idx]
+        pos, batch = pos[idx], batch[idx] 
+        return x, pos, batch, seed_idx
 
 class GlobalSAModule(torch.nn.Module):
     def __init__(self, nn):
         super().__init__()
         self.nn = nn
 
-    def forward(self, x, pos, batch):
+    def forward(self, x, pos, batch, seed_idx):
         x = self.nn(torch.cat([x, pos], dim=1))
         x = global_max_pool(x, batch)
         pos = pos.new_zeros((x.size(0), 3))
         batch = torch.arange(x.size(0), device=batch.device)
-        return x, pos, batch
+        return x, pos, batch, None
 
