@@ -29,15 +29,17 @@ from utils.semantic_kitti_eval_np import PanopticEval
 from utils.utils import save_pred_to_disk
 
 from model.PointNet2 import Net
+from model.Randlanet import RandlaNet
 
 # define the gpu index to train
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 # data_path = '/Volumes/scratchdata/kitti/dataset/'
-data_path = '/Volumes/scratchdata_smb/kitti/dataset/' # alternative path
+# data_path = '/Volumes/scratchdata_smb/kitti/dataset/' # alternative path
+data_path = '/Volumes/mrgdatastore6/ThirdPartyData/semantic_kitti/dataset'
 # DATA_path = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml' #
 DATA_path = './semantic-kitti.yaml' # for running in docker
-save_path = './run_inst'
+save_path = './run_sem'
 prediction_path = './panoptic_data'
 
 testing_sequences = ['00']
@@ -59,7 +61,7 @@ test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=
 ignore_label = 0
 
 # make run file, update for every run
-run = str(13)
+run = str(6)
 save_path = os.path.join(save_path, run) # model state path
 if not os.path.exists(save_path):
     os.makedirs(save_path)
@@ -68,13 +70,17 @@ print('Run Number is :', run)
 
 
 # create a SummaryWriter to write logs to a log directory
-log_path = 'log_draft'
+log_path = 'log_sem'
 log_path = os.path.join(log_path, run) # train/test info path
 writer = SummaryWriter(log_dir=log_path, filename_suffix=time.strftime("%Y%m%d_%H%M%S"))
 
 # device = torch.device('cpu') # only for debugging
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = Net(test_dataset.get_n_classes()).to(device)
+# model = Net(test_dataset.get_n_classes()).to(device)
+model = RandlaNet(num_features=3,
+        num_classes=20,
+        decimation=4,
+        num_neighbors=16).to(device)
 
 # output iou and loss
 @torch.no_grad()
@@ -153,29 +159,12 @@ def test(loader, model, if_save_pred):
             num_inst_ids = len(np.unique(masked_clustering.labels_))
             print(f'number of instance ids: {num_inst_ids}')
 
-            # # for using masked features indexes to do nearest on pos
-            # torch.cuda.synchronize()
-            # start_time = time.time() 
-
-            # dist = torch.cdist(maksed_cluster_centers.to(device), masked_inst_out, p=2, compute_mode="donot_use_mm_for_euclid_dist")
-            # _, dist_idx = torch.topk(-dist, 1, dim=1) # find the closest neighbors
-
-            # torch.cuda.synchronize()
-            # end_time = time.time()
-            # print(f'1-nn took {end_time-start_time} seconds')
-
-            # unique_dist_idx = torch.unique(dist_idx)
-            # if len(unique_dist_idx) == maksed_cluster_centers.size(0):
-            #     print(f'number of instance ids remains the same: {len(unique_dist_idx)}')
-            # else:
-            #     print(f'number of instance ids after 1-nn changes! from {maksed_cluster_centers.size(0)} to {len(unique_dist_idx)}')
-            # global_idx = seed_idx[unique_dist_idx]
-
             torch.cuda.synchronize()
             start_time = time.time() 
             # clustering = nearest(pos, masked_pos.to(device))
             # clustering = nearest(inst_out, masked_inst_out.to(device))
-            clustering = nearest(inst_out_buffer, maksed_cluster_centers.to(device))
+            clustering = nearest(inst_out, maksed_cluster_centers.to(device))
+            # breakpoint()
             # clustering = nearest(pos, pos[global_idx])
             torch.cuda.synchronize()
             end_time = time.time()
@@ -192,7 +181,9 @@ def test(loader, model, if_save_pred):
             ignore_absence_label = np.unique(np.append(absence_label, ignore_label))
 
             evaluator = PanopticEval(test_dataset.get_n_classes(), ignore=ignore_absence_label)
-            evaluator.addBatch(sem_pred, inst_pred, sem_label, inst_label)
+            # evaluator.addBatch(sem_pred, inst_pred, sem_label, inst_label)
+            # # Yang: for debugging purpose
+            # evaluator.addBatch(sem_label, inst_label, sem_label, inst_label)
             pq, sq, rq, all_pq, all_sq, all_rq = evaluator.getPQ()
             iou, all_iou = evaluator.getSemIoU() # IoU over all classes, IoU for each class
 
@@ -209,8 +200,6 @@ def test(loader, model, if_save_pred):
             iou_list.append(iou)
             all_iou_list.append(all_iou)
 
-            #TODO: save predictions to disk for visualization, dtype=numpy int, concatenate the inst and pred labels together into binary format.
-            # Assume that there is only one sequence in the test or val sequence. If more sequences, exist, need to add extra stuff to the code
             if if_save_pred == True:
                 sem_pred_original = test_dataset.to_original(sem_pred) # convert from xentropy label to original label
                 # data dtype should be both np.uint32 for bit shifting
@@ -252,8 +241,10 @@ def test(loader, model, if_save_pred):
 
 for epoch in range(1): # original is (1, 31)
     # debugging test by loading model
-    state_dict = torch.load('./run_inst/5/Epoch_10_20230218_120949.pth')['net']
-    model.load_state_dict(state_dict)
+    # state_dict = torch.load('./run_inst/5/Epoch_10_20230218_120949.pth')['net']
+    state_dict = torch.load('./run_sem/6/Epoch_33_20230405_133003_semantic_instance.pth')
+    model.load_state_dict(state_dict['net'])
+    epoch = state_dict['epoch']
     
     pq_list, sq_list, rq_list, all_pq_list, all_sq_list, all_rq_list, iou_list, all_iou_list, load_time_list, feature_gen_time_list, labelling_time_list = test(test_loader, model, if_save_pred=True)
     
@@ -265,7 +256,7 @@ for epoch in range(1): # original is (1, 31)
     writer.add_scalar('test/pq', pq_list, epoch)
     writer.add_scalar('test/sq', sq_list, epoch)
     writer.add_scalar('test/rq', rq_list, epoch)
-    writer.add_scalar('test/miou', iou_list, epoch) # miou
+    writer.add_scalar('test/mIoU', iou_list, epoch) # miou
 
     writer.add_scalar('time/dataloading', load_time_list, epoch)
     writer.add_scalar('time/feature generation', feature_gen_time_list, epoch)
