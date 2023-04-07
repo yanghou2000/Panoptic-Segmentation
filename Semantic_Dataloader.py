@@ -4,6 +4,10 @@ import torch
 from torch_geometric.data import Dataset, Data
 import yaml
 
+# for debugging Randlanet
+from torch_geometric.loader import DataLoader
+from model.Randlanet import RandlaNet
+
 
 
 class SemanticKittiGraph(Dataset):
@@ -60,6 +64,8 @@ class SemanticKittiGraph(Dataset):
         self.label_names.sort()
 
         # check that there are same amount of labels and scans
+        if len(self.label_names) != len(self.scan_names):
+            print(len(self.label_names), len(self.scan_names))
         assert(len(self.label_names) == len(self.scan_names))
 
     def len(self):
@@ -196,23 +202,20 @@ class SemanticKittiGraph(Dataset):
 
 #Define a main function
 if __name__=='__main__':
-    DATA_dir = '/home/yanghou/project/Panoptic-Segmentation/semantic-kitti.yaml'
-    mydataset = SemanticKittiGraph(dataset_dir='/Volumes/scratchdata/kitti/dataset/', 
-                                    sequences=['00', '01'], 
-                                    DATA_dir = DATA_dir)
-    # print(mydataset[0].y[6:10,:])
-    # print(f'pos: {type(mydataset[0].pos)}')
-    # print(mydataset.map_loss_weight())
-    print(f'len: {mydataset.len()}')
-    print(mydataset[0].pos)
-    print(mydataset[0].y)
-    # print(mydataset[0].z[:2000])
-    # print(f'original label: {mydataset[0].y[-10:]}, type: {type(mydataset[0].y)}')
-    # print(f'orignial label string: {mydataset[0].label_string[-10:]}')
-    # print(f'mapped label: {mydataset[0].map_label[-10:]}')
-    # print(f'mapped label string: {mydataset[0].map_label_string[-10:]}')
-    for i in (mydataset[0].z):
-        if i != 0:
-            print(i)
-        else:
-            continue
+    DATA_path = './semantic-kitti.yaml'
+    testing_sequences = ['00']
+    data_path = '/Volumes/scratchdata_smb/kitti/dataset/' # alternative path
+    train_dataset = SemanticKittiGraph(dataset_dir=data_path, 
+                                sequences= testing_sequences, 
+                                DATA_dir=DATA_path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    test_input = train_dataset[0].to(device)
+    
+    model = RandlaNet(num_features=3,
+        num_classes=20,
+        decimation= 4,
+        num_neighbors=4).to(device)
+    model.eval()
+    test_output = model(test_input)
+                                
