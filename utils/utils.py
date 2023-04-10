@@ -112,3 +112,14 @@ def save_pred_to_disk(pred, sequence, save_pred_path, run, save_idx):
     with open(os.path.join(save_path, filename), 'wb') as f:
         # f.write(np.float32(pred)) # save as float 32 instead of float 64
         f.write(pred)
+
+def set_random_seeds(seed):
+    # Set random seeds for NumPy
+    np.random.seed(seed)
+    random.seed(seed)
+
+    # Set random seeds for PyTorch
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
