@@ -23,6 +23,9 @@ from torch_geometric.nn import knn_interpolate
 from torch_geometric.utils import scatter
 lrelu02_kwargs = {'negative_slope': 0.2}
 bn099_kwargs = {'momentum': 0.01, 'eps': 1e-6}
+from utils.utils import set_random_seeds
+
+set_random_seeds(42)
 
 # PointNet++
 class SAModule(torch.nn.Module):
