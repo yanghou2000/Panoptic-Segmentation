@@ -25,6 +25,7 @@ class RandlaNet(torch.nn.Module):
         decimation: int = 4,
         num_neighbors: int = 16,
         return_logits: bool = False,
+        dim_inst_out: int = 32,
     ):
         super().__init__()
 
@@ -59,6 +60,9 @@ class RandlaNet(torch.nn.Module):
         self.mlp_classif = SharedMLP([d_bottleneck, 64, 32],
                                      dropout=[0.0, 0.5])
         self.fc_classif = Linear(32, num_classes)
+
+        # dowansample the instance features into 5 dimensions
+        self.fc_inst = SharedMLP([d_bottleneck, dim_inst_out])
 
     def forward(self, data):
         data.x = data.x if data.x is not None else data.pos
@@ -109,7 +113,8 @@ class RandlaNet(torch.nn.Module):
         inst_fp2_out = self.inst_fp2(*inst_fp3_out, *b1_out_decimated)
         inst_fp1_out = self.inst_fp1(*inst_fp2_out, *b1_out)
 
-        inst_out = inst_fp1_out[0]
+        # inst_out = inst_fp1_out[0]
+        inst_out = self.fc_inst(inst_fp1_out[0])
 
         return sem_out, inst_out, seed_idx
 
