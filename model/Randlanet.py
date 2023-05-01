@@ -16,6 +16,7 @@ from torch_geometric.nn import knn_interpolate
 from torch_geometric.utils import scatter
 
 from torch_geometric.data import Dataset, Data
+from model.ASIS import ASIS
 
 class RandlaNet(torch.nn.Module):
     def __init__(
@@ -26,13 +27,18 @@ class RandlaNet(torch.nn.Module):
         num_neighbors: int = 16,
         return_logits: bool = False,
         dim_inst_out: int = 32,
+        use_asis: bool = False,
+        asis: dict = {'feature_dim': 32, 'inst_emb_dim': 5, 'num_class': 20, 'k':30, 'distance_threshold': 0.5, 'norm_degree': 2}
     ):
         super().__init__()
 
         self.decimation = decimation
         # An option to return logits instead of log probabilities:
         self.return_logits = return_logits
-
+        self.use_asis = use_asis
+        keys = ['feature_dim', 'inst_emb_dim', 'num_class', 'k', 'distance_threshold', 'norm_degree']
+        [feature_dim, inst_emb_dim, num_class, k, distance_threshold, norm_degree] = [asis[key] for key in keys]
+        self.asis = ASIS(feature_dim=feature_dim, inst_emb_dim=inst_emb_dim, num_class=num_class, k=k, distance_threshold=distance_threshold, norm_degree=norm_degree) # distance_threshold = delta_var
         # Authors use 8, which is a bottleneck
         # for the final MLP, and also when num_classes>8
         # or num_features>8.
@@ -62,30 +68,35 @@ class RandlaNet(torch.nn.Module):
         self.fc_classif = Linear(32, num_classes)
 
         # dowansample the instance features into 5 dimensions
-        self.fc_inst = SharedMLP([d_bottleneck, dim_inst_out])
+        # self.fc_inst = SharedMLP([d_bottleneck, dim_inst_out])
+        self.fc_inst = Linear(d_bottleneck, dim_inst_out)
 
     def forward(self, data):
         data.x = data.x if data.x is not None else data.pos
 
+        initial_seed_idx = torch.arange(data.x.shape[0])
+
         b1_out = self.block1(self.fc0(data.x), data.pos, data.batch)
-        b1_out_decimated, ptr1, _ = decimate(b1_out, data.ptr, self.decimation) # downsampling
+        b1_out_decimated, ptr1, idx_1 = decimate(b1_out, data.ptr, self.decimation) # downsampling
         # print('b1_out: ', b1_out, len(b1_out), 'b1_out_decimated', b1_out_decimated, len(b1_out_decimated), ptr1, ptr1.shape)
         # print(ptr1, ptr1.shape)
 
         b2_out = self.block2(*b1_out_decimated)
-        b2_out_decimated, ptr2, _ = decimate(b2_out, ptr1, self.decimation)
+        b2_out_decimated, ptr2, idx_2 = decimate(b2_out, ptr1, self.decimation)
         # print(b2_out, b2_out.shape, b2_out_decimated, b2_out_decimated.shape, ptr2, ptr2.shape)
         # print(ptr2, ptr2.shape)
 
         b3_out = self.block3(*b2_out_decimated)
-        b3_out_decimated, ptr3, _ = decimate(b3_out, ptr2, self.decimation)
+        b3_out_decimated, ptr3, idx_3 = decimate(b3_out, ptr2, self.decimation)
         # print(b3_out, b3_out.shape, b3_out_decimated, b3_out_decimated.shape, ptr3, ptr3.shape)
         # print(ptr3, ptr3.shape)
 
         b4_out = self.block4(*b3_out_decimated)
-        b4_out_decimated, ptr4, seed_idx = decimate(b4_out, ptr3, self.decimation)
+        b4_out_decimated, ptr4, idx_4 = decimate(b4_out, ptr3, self.decimation)
         # print(b4_out, b4_out.shape, b4_out_decimated, b4_out_decimated.shape, ptr4, ptr4.shape)
         # print(ptr4, ptr4.shape)
+
+        seed_idx = initial_seed_idx[idx_1][idx_2][idx_3][idx_4]
 
         mlp_out = (
             self.mlp_summit(b4_out_decimated[0]),
@@ -100,12 +111,6 @@ class RandlaNet(torch.nn.Module):
         sem_fp1_out = self.sem_fp1(*sem_fp2_out, *b1_out)
 
         sem_x = self.mlp_classif(sem_fp1_out[0])
-        sem_logits = self.fc_classif(sem_x)
-
-        # if self.return_logits:
-        #     return sem_logits
-
-        sem_out = sem_logits.log_softmax(dim=-1)
         
         # Instance branch
         inst_fp4_out = self.inst_fp4(*mlp_out, *b3_out_decimated)
@@ -113,8 +118,14 @@ class RandlaNet(torch.nn.Module):
         inst_fp2_out = self.inst_fp2(*inst_fp3_out, *b1_out_decimated)
         inst_fp1_out = self.inst_fp1(*inst_fp2_out, *b1_out)
 
-        # inst_out = inst_fp1_out[0]
-        inst_out = self.fc_inst(inst_fp1_out[0])
+        if self.use_asis == True:
+            sem_logits, inst_out = self.asis(sem_x, inst_fp1_out[0], data.batch)
+            sem_out = sem_logits.log_softmax(dim=-1)
+        else:
+            sem_logits = self.fc_classif(sem_x)
+            sem_out = sem_logits.log_softmax(dim=-1)
+            # inst_out = inst_fp1_out[0]
+            inst_out = self.fc_inst(inst_fp1_out[0])
 
         return sem_out, inst_out, seed_idx
 
